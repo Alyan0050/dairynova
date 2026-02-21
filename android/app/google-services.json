@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "776870107682",
+    "project_id": "dairy-nova",
+    "storage_bucket": "dairy-nova.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:776870107682:android:b30c505f841a2581b5487b",
+        "android_client_info": {
+          "package_name": "com.example.dairy_nova_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzbdK8kQxUugvnQTE-a7DcSg4mNPAJJLg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
