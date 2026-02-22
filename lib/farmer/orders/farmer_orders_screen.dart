@@ -36,7 +36,6 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
           _buildStatusFilter(),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              // Querying using the root-level farmId for direct access
               stream: FirebaseFirestore.instance
                   .collection('orders')
                   .where('farmId', isEqualTo: widget.farmId)
@@ -46,18 +45,20 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
+                if (snapshot.hasError) {
+                  return const Center(child: Text("Error: Check Firebase Index"));
+                }
+
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text("No orders found."));
+                  return const Center(child: Text("No orders found for your farm."));
                 }
 
                 var docs = snapshot.data!.docs;
 
-                // Apply status filter locally
                 if (_selectedFilter != 'All') {
                   docs = docs.where((doc) => doc['status'] == _selectedFilter).toList();
                 }
 
-                // Sorting: Newest first
                 docs.sort((a, b) {
                   var aDate = (a['orderDate'] ?? a['date']) as Timestamp?;
                   var bDate = (b['orderDate'] ?? b['date']) as Timestamp?;
@@ -66,7 +67,7 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
                 });
 
                 if (docs.isEmpty) {
-                  return const Center(child: Text("No orders with this status."));
+                  return const Center(child: Text("No orders matching this status."));
                 }
 
                 return ListView.builder(
@@ -113,15 +114,12 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
     String status = data['status'] ?? 'Pending';
     var total = data['totalAmount'] ?? data['total'] ?? 0.0;
     List items = data['items'] ?? [];
-    String address = data['deliveryAddress'] ?? data['address'] ?? 'No address';
-    String customerName = data['customerName'] ?? "New Customer";
+    String address = data['deliveryAddress'] ?? data['address'] ?? 'No address provided';
+    String customerName = data['customerName'] ?? "Customer";
     String? customerPhone = data['customerPhone']; 
 
-    bool isSubscription = data['orderType'] == 'subscription';
-    String frequency = data['frequency'] ?? '';
-
     return Card(
-      elevation: 2,
+      elevation: 3,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: ExpansionTile(
@@ -147,24 +145,24 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
                     ),
                   ),
                 const SizedBox(height: 10),
-                if (isSubscription)
-                  Text("🔁 Recurring: $frequency", 
-                      style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                Text("📍 Address: $address", style: const TextStyle(fontSize: 13)),
+                Text("📍 Delivery to: $address", style: const TextStyle(fontSize: 13)),
                 const SizedBox(height: 12),
-                const Text("Items:", style: TextStyle(fontWeight: FontWeight.bold)),
-                ...items.map((item) => Text("• ${item['name']} x${item['quantity']}")),
+                const Text("Order Summary:", style: TextStyle(fontWeight: FontWeight.bold)),
+                ...items.map((item) => Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4),
+                  child: Text("• ${item['name']} (x${item['quantity']})"),
+                )),
                 const SizedBox(height: 20),
-                const Text("Update Status:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 8),
+                const Text("Update Progress:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _actionChip(context, id, "Accepted", Colors.blue),
-                    _actionChip(context, id, "Shipped", Colors.purple),
-                    _actionChip(context, id, "Delivered", Colors.green),
-                    _actionChip(context, id, "Cancelled", Colors.red),
+                    _actionChip(context, id, "Accepted", Colors.blue, items),
+                    _actionChip(context, id, "Shipped", Colors.purple, items),
+                    _actionChip(context, id, "Delivered", Colors.green, items),
+                    _actionChip(context, id, "Cancelled", Colors.red, items),
                   ],
                 ),
               ],
@@ -175,14 +173,48 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
     );
   }
 
-  Widget _actionChip(BuildContext context, String orderId, String label, Color color) {
+  // --- REFINED ACTION CHIP WITH STOCK REVERSAL LOGIC ---
+  Widget _actionChip(BuildContext context, String orderId, String label, Color color, List items) {
     return ActionChip(
       label: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
       backgroundColor: color,
       onPressed: () async {
-        await FirebaseFirestore.instance.collection('orders').doc(orderId).update({'status': label});
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Order is now $label")));
+        final firestore = FirebaseFirestore.instance;
+
+        try {
+          if (label == 'Cancelled') {
+            // Revert stock using a transaction
+            await firestore.runTransaction((transaction) async {
+              for (var item in items) {
+                String? productId = item['productId'];
+                if (productId != null) {
+                  DocumentReference productRef = firestore.collection('products').doc(productId);
+                  DocumentSnapshot productSnap = await transaction.get(productRef);
+
+                  if (productSnap.exists) {
+                    int currentStock = productSnap.get('stock') ?? 0;
+                    int orderQty = item['quantity'] ?? 0;
+                    // REVERSAL: Add stock back
+                    transaction.update(productRef, {'stock': currentStock + orderQty});
+                  }
+                }
+              }
+              // Update order status
+              transaction.update(firestore.collection('orders').doc(orderId), {'status': label});
+            });
+          } else {
+            // Regular status update
+            await firestore.collection('orders').doc(orderId).update({'status': label});
+          }
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Order marked as $label")));
+          }
+        } catch (e) {
+          debugPrint("Farmer Action Error: $e");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Action failed: $e")));
+          }
         }
       },
     );

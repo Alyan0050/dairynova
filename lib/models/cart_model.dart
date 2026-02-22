@@ -60,8 +60,8 @@ class CartProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- FINAL FIXED PLACE ORDER ---
-  Future<bool> placeOrder(String deliveryAddress) async {
+  // --- UPDATED: TRANSACTION-SAFE PLACE ORDER ---
+  Future<bool> placeOrder(String deliveryAddress, {String orderType = 'one-time', String? frequency}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _items.isEmpty) return false;
 
@@ -70,15 +70,15 @@ class CartProvider with ChangeNotifier {
     try {
       final userDoc = await firestore.collection('users').doc(user.uid).get();
       String actualName = userDoc.data()?['name'] ?? "New Customer";
-
-      // CRITICAL: Get the farmId from the first item to store at top-level
-      // This allows the Farmer Dashboard to filter orders correctly.
       final String primaryFarmId = _items.values.first.product.farmId;
 
       await firestore.runTransaction((transaction) async {
+        // 1. ALL READS FIRST: Collect snapshots and validate stock
+        List<Map<String, dynamic>> stockUpdates = [];
+
         for (var cartItem in _items.values) {
           DocumentReference productRef = firestore.collection('products').doc(cartItem.product.id);
-          DocumentSnapshot productSnap = await transaction.get(productRef);
+          DocumentSnapshot productSnap = await transaction.get(productRef); // READ operation
 
           if (!productSnap.exists) {
             throw Exception("Product ${cartItem.product.name} no longer exists.");
@@ -90,15 +90,28 @@ class CartProvider with ChangeNotifier {
             throw Exception("Not enough stock for ${cartItem.product.name}.");
           }
 
-          transaction.update(productRef, {'stock': currentStock - cartItem.quantity});
+          stockUpdates.add({
+            'ref': productRef,
+            'newStock': currentStock - cartItem.quantity,
+          });
+        }
+
+        // 2. ALL WRITES AFTER READS: Update stock and create order
+        for (var update in stockUpdates) {
+          transaction.update(update['ref'], {'stock': update['newStock']}); // WRITE operation
         }
 
         DocumentReference orderRef = firestore.collection('orders').doc();
         transaction.set(orderRef, {
           'customerId': user.uid,
           'customerName': actualName,
-          'farmId': primaryFarmId, // FIXED: Now searchable by FarmerDashboard
+          'farmId': primaryFarmId,
           'deliveryAddress': deliveryAddress,
+          'totalAmount': totalAmount,
+          'status': 'Pending',
+          'orderType': orderType, // Added for subscriptions
+          'frequency': frequency,  // Added for subscriptions
+          'orderDate': FieldValue.serverTimestamp(),
           'items': _items.values.map((i) => {
             'productId': i.product.id,
             'name': i.product.name,
@@ -106,9 +119,6 @@ class CartProvider with ChangeNotifier {
             'quantity': i.quantity,
             'farmId': i.product.farmId,
           }).toList(),
-          'totalAmount': totalAmount,
-          'status': 'Pending',
-          'orderDate': FieldValue.serverTimestamp(),
         });
       });
 
