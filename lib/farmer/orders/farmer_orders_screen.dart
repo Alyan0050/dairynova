@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart'; // Add this for calling
+import 'package:url_launcher/url_launcher.dart'; 
 import '../../../utils/app_theme.dart';
 
-class FarmerOrdersScreen extends StatelessWidget {
+class FarmerOrdersScreen extends StatefulWidget {
   final String farmId;
   const FarmerOrdersScreen({super.key, required this.farmId});
 
-  // Function to call customer (Operational for Rajanpur/Jampur deliveries)
+  @override
+  State<FarmerOrdersScreen> createState() => _FarmerOrdersScreenState();
+}
+
+class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
+  String _selectedFilter = 'All';
+
   Future<void> _callCustomer(String? phone) async {
     if (phone == null || phone.isEmpty) return;
     final Uri launchUri = Uri(scheme: 'tel', path: phone);
@@ -25,42 +31,80 @@ class FarmerOrdersScreen extends StatelessWidget {
         backgroundColor: AppColors.primary,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('orders')
-            .where('farmId', isEqualTo: farmId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: Column(
+        children: [
+          _buildStatusFilter(),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              // Querying using the root-level farmId for direct access
+              stream: FirebaseFirestore.instance
+                  .collection('orders')
+                  .where('farmId', isEqualTo: widget.farmId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text("No orders found."));
-          }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(child: Text("No orders found."));
+                }
 
-          final docs = snapshot.data!.docs;
+                var docs = snapshot.data!.docs;
 
-          // Safe sorting for orderDate vs date
-          docs.sort((a, b) {
-            var aData = a.data() as Map<String, dynamic>;
-            var bData = b.data() as Map<String, dynamic>;
-            var aDate = (aData['orderDate'] ?? aData['date']) as Timestamp?;
-            var bDate = (bData['orderDate'] ?? bData['date']) as Timestamp?;
-            if (aDate == null || bDate == null) return 0;
-            return bDate.compareTo(aDate);
-          });
+                // Apply status filter locally
+                if (_selectedFilter != 'All') {
+                  docs = docs.where((doc) => doc['status'] == _selectedFilter).toList();
+                }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              var orderData = docs[index].data() as Map<String, dynamic>;
-              String orderId = docs[index].id;
-              return _buildManagementCard(context, orderId, orderData);
-            },
+                // Sorting: Newest first
+                docs.sort((a, b) {
+                  var aDate = (a['orderDate'] ?? a['date']) as Timestamp?;
+                  var bDate = (b['orderDate'] ?? b['date']) as Timestamp?;
+                  if (aDate == null || bDate == null) return 0;
+                  return bDate.compareTo(aDate);
+                });
+
+                if (docs.isEmpty) {
+                  return const Center(child: Text("No orders with this status."));
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    var orderData = docs[index].data() as Map<String, dynamic>;
+                    String orderId = docs[index].id;
+                    return _buildManagementCard(context, orderId, orderData);
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusFilter() {
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        children: ['All', 'Pending', 'Accepted', 'Shipped', 'Delivered', 'Cancelled'].map((status) {
+          bool isSelected = _selectedFilter == status;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(status, style: TextStyle(color: isSelected ? Colors.white : Colors.black)),
+              selected: isSelected,
+              selectedColor: AppColors.primary,
+              onSelected: (val) => setState(() => _selectedFilter = status),
+            ),
           );
-        },
+        }).toList(),
       ),
     );
   }
@@ -70,47 +114,21 @@ class FarmerOrdersScreen extends StatelessWidget {
     var total = data['totalAmount'] ?? data['total'] ?? 0.0;
     List items = data['items'] ?? [];
     String address = data['deliveryAddress'] ?? data['address'] ?? 'No address';
-    
-    // UPDATED: Get customer name and phone
     String customerName = data['customerName'] ?? "New Customer";
-    String? customerPhone = data['customerPhone']; // Ensure this is saved during checkout
+    String? customerPhone = data['customerPhone']; 
 
     bool isSubscription = data['orderType'] == 'subscription';
     String frequency = data['frequency'] ?? '';
 
     return Card(
-      elevation: 3,
-      shadowColor: Colors.black.withValues(alpha: 0.1),
+      elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: ExpansionTile(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // DISPLAY CUSTOMER NAME PROMINENTLY
-            Text(customerName, 
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary)),
-            Row(
-              children: [
-                Text("Order #${id.substring(0, 5).toUpperCase()}", 
-                    style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                if (isSubscription) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: const Text("SUB", style: TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
+        title: Text(customerName, 
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.primary)),
         subtitle: Text("Status: $status | Rs. $total", 
-            style: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.w600)),
+            style: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.bold, fontSize: 13)),
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
@@ -119,33 +137,26 @@ class FarmerOrdersScreen extends StatelessWidget {
               children: [
                 const Divider(),
                 if (customerPhone != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: ElevatedButton.icon(
-                      onPressed: () => _callCustomer(customerPhone),
-                      icon: const Icon(Icons.phone, size: 18),
-                      label: const Text("Call Customer"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(double.infinity, 40),
-                      ),
+                  ElevatedButton.icon(
+                    onPressed: () => _callCustomer(customerPhone),
+                    icon: const Icon(Icons.phone),
+                    label: const Text("Call Customer"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green, foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 40),
                     ),
                   ),
-                if (isSubscription)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Text("🔁 Recurring: $frequency", 
-                        style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                  ),
-                Text("📍 Address: $address", style: const TextStyle(fontSize: 13)),
                 const SizedBox(height: 10),
+                if (isSubscription)
+                  Text("🔁 Recurring: $frequency", 
+                      style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                Text("📍 Address: $address", style: const TextStyle(fontSize: 13)),
+                const SizedBox(height: 12),
                 const Text("Items:", style: TextStyle(fontWeight: FontWeight.bold)),
                 ...items.map((item) => Text("• ${item['name']} x${item['quantity']}")),
                 const SizedBox(height: 20),
-                
-                const Text("Update Order Status:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 10),
+                const Text("Update Status:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,

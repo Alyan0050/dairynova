@@ -20,14 +20,30 @@ class Product {
   });
 
   factory Product.fromFirestore(Map<String, dynamic> data, String id) {
+    // Safely parsing price to handle int, double, or String types
+    double parsedPrice = 0.0;
+    if (data['price'] is num) {
+      parsedPrice = (data['price'] as num).toDouble();
+    } else if (data['price'] is String) {
+      parsedPrice = double.tryParse(data['price']) ?? 0.0;
+    }
+
+    // Safely parsing stock to handle potential String inputs
+    int parsedStock = 0;
+    if (data['stock'] is num) {
+      parsedStock = (data['stock'] as num).toInt();
+    } else if (data['stock'] is String) {
+      parsedStock = int.tryParse(data['stock']) ?? 0;
+    }
+
     return Product(
       id: id,
       farmId: data['farmId'] ?? '',
       name: data['name'] ?? '',
       category: data['category'] ?? 'Milk',
-      price: (data['price'] ?? 0).toDouble(),
+      price: parsedPrice,
       unit: data['unit'] ?? 'Ltr',
-      stock: data['stock'] ?? 0,
+      stock: parsedStock,
       imageUrl: data['imageUrl'] ?? '',
     );
   }

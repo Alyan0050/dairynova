@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'product_model.dart'; //
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'product_model.dart';
 
 class CartItem {
   final Product product;
@@ -23,12 +25,25 @@ class CartProvider with ChangeNotifier {
     return total;
   }
 
+  bool canAddMore(Product product) {
+    final existingItem = _items[product.id];
+    if (existingItem == null) {
+      return product.stock > 0;
+    }
+    return existingItem.quantity < product.stock;
+  }
+
   void addItem(Product product) {
+    if (!canAddMore(product)) return;
+
     if (_items.containsKey(product.id)) {
-      _items.update(product.id, (existing) => CartItem(
-        product: existing.product,
-        quantity: existing.quantity + 1,
-      ));
+      _items.update(
+        product.id,
+        (existing) => CartItem(
+          product: existing.product,
+          quantity: existing.quantity + 1,
+        ),
+      );
     } else {
       _items.putIfAbsent(product.id, () => CartItem(product: product));
     }
@@ -43,5 +58,65 @@ class CartProvider with ChangeNotifier {
   void clearCart() {
     _items.clear();
     notifyListeners();
+  }
+
+  // --- FINAL FIXED PLACE ORDER ---
+  Future<bool> placeOrder(String deliveryAddress) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _items.isEmpty) return false;
+
+    final firestore = FirebaseFirestore.instance;
+
+    try {
+      final userDoc = await firestore.collection('users').doc(user.uid).get();
+      String actualName = userDoc.data()?['name'] ?? "New Customer";
+
+      // CRITICAL: Get the farmId from the first item to store at top-level
+      // This allows the Farmer Dashboard to filter orders correctly.
+      final String primaryFarmId = _items.values.first.product.farmId;
+
+      await firestore.runTransaction((transaction) async {
+        for (var cartItem in _items.values) {
+          DocumentReference productRef = firestore.collection('products').doc(cartItem.product.id);
+          DocumentSnapshot productSnap = await transaction.get(productRef);
+
+          if (!productSnap.exists) {
+            throw Exception("Product ${cartItem.product.name} no longer exists.");
+          }
+
+          int currentStock = productSnap.get('stock') ?? 0;
+
+          if (currentStock < cartItem.quantity) {
+            throw Exception("Not enough stock for ${cartItem.product.name}.");
+          }
+
+          transaction.update(productRef, {'stock': currentStock - cartItem.quantity});
+        }
+
+        DocumentReference orderRef = firestore.collection('orders').doc();
+        transaction.set(orderRef, {
+          'customerId': user.uid,
+          'customerName': actualName,
+          'farmId': primaryFarmId, // FIXED: Now searchable by FarmerDashboard
+          'deliveryAddress': deliveryAddress,
+          'items': _items.values.map((i) => {
+            'productId': i.product.id,
+            'name': i.product.name,
+            'price': i.product.price,
+            'quantity': i.quantity,
+            'farmId': i.product.farmId,
+          }).toList(),
+          'totalAmount': totalAmount,
+          'status': 'Pending',
+          'orderDate': FieldValue.serverTimestamp(),
+        });
+      });
+
+      clearCart();
+      return true;
+    } catch (e) {
+      debugPrint("Order/Stock Error: $e");
+      return false;
+    }
   }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'add_product_screen.dart';
-import '../../utils/app_theme.dart'; // The yellow line will disappear once we use AppColors
+import '../../utils/app_theme.dart';
+import '../../models/product_model.dart'; // Ensure you have this model for easy parsing
 
 class ProductManagementScreen extends StatelessWidget {
   final String farmId;
@@ -10,7 +11,7 @@ class ProductManagementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Removed the AppBar from here because it's now handled by the FarmerDashboard
+      backgroundColor: AppColors.background,
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('products')
@@ -29,9 +30,12 @@ class ProductManagementScreen extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             itemCount: snapshot.data!.docs.length,
             itemBuilder: (context, index) {
-              var product = snapshot.data!.docs[index].data() as Map<String, dynamic>;
-              String docId = snapshot.data!.docs[index].id;
-              return _buildProductCard(context, product, docId);
+              var doc = snapshot.data!.docs[index];
+              var productMap = doc.data() as Map<String, dynamic>;
+              // Convert to Product object for cleaner code
+              Product product = Product.fromFirestore(productMap, doc.id);
+              
+              return _buildProductCard(context, product);
             },
           );
         },
@@ -41,7 +45,7 @@ class ProductManagementScreen extends StatelessWidget {
           context,
           MaterialPageRoute(builder: (context) => AddProductScreen(farmId: farmId)),
         ),
-        backgroundColor: AppColors.primary, // Using the theme to remove the yellow line
+        backgroundColor: AppColors.primary,
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
@@ -74,7 +78,19 @@ class ProductManagementScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProductCard(BuildContext context, Map<String, dynamic> product, String docId) {
+  Widget _buildProductCard(BuildContext context, Product product) {
+    // Logic for stock color coding
+    Color stockColor = Colors.green;
+    String stockText = "${product.stock} ${product.unit} left";
+    
+    if (product.stock == 0) {
+      stockColor = Colors.red;
+      stockText = "Out of Stock";
+    } else if (product.stock < 10) {
+      stockColor = Colors.orange;
+      stockText = "Low Stock: ${product.stock}";
+    }
+
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
@@ -82,27 +98,57 @@ class ProductManagementScreen extends StatelessWidget {
       color: AppColors.white,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => AddProductScreen(
+              farmId: farmId, 
+              existingProduct: product, // Pass product to edit
+            ),
+          ),
+        ),
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.network(
-            product['imageUrl'], 
-            width: 50, 
-            height: 50, 
+            product.imageUrl, 
+            width: 60, 
+            height: 60, 
             fit: BoxFit.cover,
-            errorBuilder: (ctx, _, __) => const Icon(Icons.broken_image),
+            errorBuilder: (ctx, _, __) => const Icon(Icons.broken_image, size: 40),
           ),
         ),
         title: Text(
-          product['name'], 
+          product.name, 
           style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)
         ),
-        subtitle: Text(
-          "Price: Rs. ${product['price']} | Stock: ${product['stock']}",
-          style: const TextStyle(color: AppColors.grey),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Price: Rs. ${product.price}", style: const TextStyle(color: AppColors.grey)),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: stockColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                stockText,
+                style: TextStyle(color: stockColor, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ],
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.error),
-          onPressed: () => _confirmDelete(context, docId),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.edit_outlined, color: AppColors.primary, size: 20),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.delete_sweep_outlined, color: AppColors.error),
+              onPressed: () => _confirmDelete(context, product.id),
+            ),
+          ],
         ),
       ),
     );
@@ -113,7 +159,7 @@ class ProductManagementScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Delete Product?"),
-        content: const Text("This action cannot be undone."),
+        content: const Text("This action cannot be undone. All related data will be removed."),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context), 

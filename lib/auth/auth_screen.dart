@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // Dashboards
 import '../admin_dashboard.dart';
 import '../farmer/farmer_dashboard.dart';
-import '../customer/customer_home.dart'; // NEW IMPORT
+import '../customer/customer_home.dart'; 
 
 // Auth Screens
 import './register_farm_screen.dart';
@@ -24,11 +24,17 @@ class _AuthScreenState extends State<AuthScreen> {
 
   void toggleView() => setState(() => isLogin = !isLogin);
 
-  // THE UPDATED GATEKEEPER LOGIC
-  Future<void> checkUserStatus(User user, String selectedRole) async {
-    // 1. Super Admin Redirect
+  /// Handles Navigation after Login or Signup
+  /// This logic ensures users go to the right place based on their role
+  Future<void> handleAuthSuccess(User user, String selectedRole) async {
+    if (!mounted) return;
+
+    // 1. Super Admin Redirect (Strict Email Check)
     if (selectedRole == 'Super Admin' && user.email == "admin@dairynova.com") {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AdminDashboard()));
+      Navigator.pushReplacement(
+        context, 
+        MaterialPageRoute(builder: (context) => const AdminDashboard())
+      );
       return;
     }
 
@@ -41,15 +47,22 @@ class _AuthScreenState extends State<AuthScreen> {
 
       if (mounted) {
         if (farmQuery.docs.isEmpty) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const RegisterFarmScreen()));
+          // Send to registration if they haven't set up their farm yet
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
+          );
         } else {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const FarmerDashboard()));
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const FarmerDashboard())
+          );
         }
       }
       return;
     } 
 
-    // 3. Customer Redirect (Matches your selected role from login/signup)
+    // 3. Customer Redirect
     if (selectedRole == 'Customer') {
       if (mounted) {
         Navigator.pushReplacement(
@@ -57,11 +70,13 @@ class _AuthScreenState extends State<AuthScreen> {
           MaterialPageRoute(builder: (context) => const CustomerHome())
         );
       }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Logged in as $selectedRole"))
-      );
+      return;
     }
+
+    // Fallback for unexpected roles
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Access restricted for role: $selectedRole"))
+    );
   }
 
   @override
@@ -78,13 +93,24 @@ class _AuthScreenState extends State<AuthScreen> {
                 const SizedBox(height: 16),
                 const Text(
                   "Dairy Nova", 
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))
+                  style: TextStyle(
+                    fontSize: 28, 
+                    fontWeight: FontWeight.bold, 
+                    color: Color(0xFF2E7D32)
+                  )
                 ),
                 const SizedBox(height: 32),
                 
+                // FIXED: Now providing the required onSignupSuccess parameter
                 isLogin 
-                  ? LoginForm(onToggle: toggleView, onLoginSuccess: checkUserStatus) 
-                  : SignupForm(onToggle: toggleView),
+                  ? LoginForm(
+                      onToggle: toggleView, 
+                      onLoginSuccess: handleAuthSuccess
+                    ) 
+                  : SignupForm(
+                      onToggle: toggleView,
+                      onSignupSuccess: handleAuthSuccess // RED LINE FIXED
+                    ),
               ],
             ),
           ),

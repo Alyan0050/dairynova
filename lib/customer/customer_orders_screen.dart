@@ -18,43 +18,58 @@ class CustomerOrdersScreen extends StatelessWidget {
         backgroundColor: AppColors.primary,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('orders')
-            .where('customerId', isEqualTo: user?.uid)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text("No orders found."));
-          }
+      // Prevent stream errors if the user session is null
+      body: user == null 
+        ? const Center(child: Text("Please login to view orders."))
+        : StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('orders')
+                .where('customerId', isEqualTo: user.uid) // THE FIX: Filter by current user ID
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.shopping_bag_outlined, size: 60, color: Colors.grey),
+                      SizedBox(height: 10),
+                      Text("No orders found.", style: TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                );
+              }
 
-          final docs = snapshot.data!.docs;
-          
-          // Safe sorting for orderDate vs date
-          docs.sort((a, b) {
-            var aData = a.data() as Map<String, dynamic>;
-            var bData = b.data() as Map<String, dynamic>;
-            var aDate = (aData['orderDate'] ?? aData['date']) as Timestamp?;
-            var bDate = (bData['orderDate'] ?? bData['date']) as Timestamp?;
-            if (aDate == null || bDate == null) return 0;
-            return bDate.compareTo(aDate);
-          });
+              final docs = snapshot.data!.docs;
+              
+              // Internal sorting to ensure newest orders are on top
+              docs.sort((a, b) {
+                var aData = a.data() as Map<String, dynamic>;
+                var bData = b.data() as Map<String, dynamic>;
+                var aDate = (aData['orderDate'] ?? aData['date']) as Timestamp?;
+                var bDate = (bData['orderDate'] ?? bData['date']) as Timestamp?;
+                if (aDate == null || bDate == null) return 0;
+                return bDate.compareTo(aDate);
+              });
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(10),
-            itemCount: docs.length,
-            itemBuilder: (context, index) {
-              var orderData = docs[index].data() as Map<String, dynamic>;
-              String orderId = docs[index].id;
-              return _buildOrderCard(context, orderId, orderData);
+              return RefreshIndicator(
+                onRefresh: () async => await Future.delayed(const Duration(seconds: 1)),
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    var orderData = docs[index].data() as Map<String, dynamic>;
+                    String orderId = docs[index].id;
+                    return _buildOrderCard(context, orderId, orderData);
+                  },
+                ),
+              );
             },
-          );
-        },
-      ),
+          ),
     );
   }
 
@@ -62,7 +77,9 @@ class CustomerOrdersScreen extends StatelessWidget {
     String status = data['status'] ?? 'Pending';
     var totalAmount = data['totalAmount'] ?? data['total'] ?? 0.0;
     List items = data['items'] ?? [];
-    String customerName = data['customerName'] ?? "Customer"; // SYNCED: Your name in details
+    
+    // SYNCED: This field is now correctly populated by our new Signup/Cart logic
+    String customerName = data['customerName'] ?? "Customer";
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -80,7 +97,7 @@ class CustomerOrdersScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Divider(),
-                // Display the name saved with the order for transparency
+                // Display the actual name saved with the order
                 Text("Order For: $customerName", 
                     style: const TextStyle(fontSize: 13, color: Colors.blueGrey, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
@@ -106,15 +123,14 @@ class CustomerOrdersScreen extends StatelessWidget {
                           style: const TextStyle(fontSize: 12, color: Colors.grey)),
                     ),
                     
-                    // Cancellation Logic
                     if (status == 'Pending')
-                      TextButton.icon(
+                      ElevatedButton.icon(
                         onPressed: () => _confirmCancel(context, id),
-                        icon: const Icon(Icons.cancel, color: Colors.red, size: 18),
-                        label: const Text("Cancel", style: TextStyle(color: Colors.red)),
+                        icon: const Icon(Icons.cancel, size: 16),
+                        label: const Text("Cancel"),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
                       ),
 
-                    // Rating Logic
                     if (status == 'Delivered')
                       data['rating'] != null 
                         ? Row(
@@ -173,6 +189,7 @@ class CustomerOrdersScreen extends StatelessWidget {
       case 'delivered': return Colors.green;
       case 'cancelled': return Colors.red;
       case 'shipped': return Colors.purple;
+      case 'processed': return Colors.blue;
       default: return Colors.orange;
     }
   }

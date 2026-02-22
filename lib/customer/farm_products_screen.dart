@@ -18,6 +18,7 @@ class FarmProductsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // We listen to the cart to update the badge and button states in real-time
     final cart = Provider.of<CartProvider>(context);
 
     return Scaffold(
@@ -36,10 +37,7 @@ class FarmProductsScreen extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.shopping_cart),
                 onPressed: () {
-                  // 🔥 FIX: Kill all SnackBars before navigation
                   ScaffoldMessenger.of(context).clearSnackBars();
-
-                  // 🔥 Allow Flutter to destroy overlay safely
                   Future.microtask(() {
                     Navigator.push(
                       context,
@@ -83,7 +81,7 @@ class FarmProductsScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              childAspectRatio: 0.70,
+              childAspectRatio: 0.65, // Increased height slightly for stock info
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
             ),
@@ -102,7 +100,12 @@ class FarmProductsScreen extends StatelessWidget {
   }
 
   Widget _buildProductCard(BuildContext context, Product product) {
-    final cart = Provider.of<CartProvider>(context, listen: false);
+    // listen: true is required here to rebuild button when cart quantity changes
+    final cart = Provider.of<CartProvider>(context);
+    
+    // Check if more can be added based on current cart and available stock
+    final bool canAdd = cart.canAddMore(product);
+    final bool isOutOfStock = product.stock <= 0;
 
     return Card(
       elevation: 3,
@@ -111,14 +114,26 @@ class FarmProductsScreen extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-              child: Image.network(
-                product.imageUrl,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
-              ),
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                  child: Image.network(
+                    product.imageUrl,
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                  ),
+                ),
+                if (isOutOfStock)
+                  Container(
+                    color: Colors.black54,
+                    child: const Center(
+                      child: Text("OUT OF STOCK", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+              ],
             ),
           ),
           Padding(
@@ -126,22 +141,31 @@ class FarmProductsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(product.name, style: const TextStyle(fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
                 Text(
                   "Rs. ${product.price} / ${product.unit}",
                   style: const TextStyle(color: AppColors.primary, fontSize: 13),
+                ),
+                // Show current stock availability to the user
+                Text(
+                  isOutOfStock ? "Unavailable" : "Stock: ${product.stock} left",
+                  style: TextStyle(
+                    fontSize: 11, 
+                    color: isOutOfStock ? Colors.red : (product.stock < 5 ? Colors.orange : Colors.grey)
+                  ),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
+                      backgroundColor: canAdd ? AppColors.primary : Colors.grey,
                       foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                     ),
-                    onPressed: () {
+                    // Button disables if stock is 0 OR limit reached in cart
+                    onPressed: !canAdd ? null : () {
                       cart.addItem(product);
-
                       ScaffoldMessenger.of(context).clearSnackBars();
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -156,7 +180,10 @@ class FarmProductsScreen extends StatelessWidget {
                         ),
                       );
                     },
-                    child: const Text("Add to Cart", style: TextStyle(fontSize: 12)),
+                    child: Text(
+                      isOutOfStock ? "Sold Out" : (!canAdd ? "Limit Reached" : "Add to Cart"), 
+                      style: const TextStyle(fontSize: 11)
+                    ),
                   ),
                 ),
               ],

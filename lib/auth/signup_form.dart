@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; //
-import 'package:cloud_firestore/cloud_firestore.dart'; //
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SignupForm extends StatefulWidget {
   final VoidCallback onToggle;
-  const SignupForm({super.key, required this.onToggle});
+  // This fix removes the red line in AuthScreen
+  final Function(User, String) onSignupSuccess; 
+
+  const SignupForm({
+    super.key, 
+    required this.onToggle, 
+    required this.onSignupSuccess,
+  });
 
   @override
   State<SignupForm> createState() => _SignupFormState();
@@ -25,7 +32,7 @@ class _SignupFormState extends State<SignupForm> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
-  // --- THE NEW FIREBASE LOGIC ---
+  // --- THE FIXED FIREBASE LOGIC ---
   Future<void> _handleSignup() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -37,10 +44,10 @@ class _SignupFormState extends State<SignupForm> {
           password: _passwordController.text.trim(),
         );
 
-        // 2. Save additional user details (Name, Phone, Role) to Firestore
-        // This is important because Firebase Auth only stores Email/Password.
+        // 2. Save details to Firestore
+        // CRITICAL FIX: Changed 'fullName' to 'name' to sync with CartProvider
         await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
-          'fullName': _nameController.text.trim(),
+          'name': _nameController.text.trim(), 
           'email': _emailController.text.trim(),
           'phone': _phoneController.text.trim(),
           'role': _selectedRole,
@@ -48,19 +55,13 @@ class _SignupFormState extends State<SignupForm> {
         });
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Account created! Please login as $_selectedRole."),
-              backgroundColor: const Color(0xFF2E7D32),
-            ),
-          );
-          // 3. Switch back to the Login view
-          widget.onToggle(); 
+          // 3. Trigger the success handler to redirect the user
+          widget.onSignupSuccess(userCredential.user!, _selectedRole);
         }
       } on FirebaseAuthException catch (e) {
-        // Handle common errors like "email already in use"
+        String errorMsg = e.message ?? "Signup Failed";
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message ?? "Signup Failed"), backgroundColor: Colors.red),
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
         );
       } finally {
         if (mounted) setState(() => _isLoading = false);
@@ -74,7 +75,6 @@ class _SignupFormState extends State<SignupForm> {
       key: _formKey,
       child: Column(
         children: [
-          // Reuse your CustomTextField from the theme logic
           _buildTextField(_nameController, "Full Name", Icons.person_outline),
           const SizedBox(height: 16),
           _buildTextField(_emailController, "Email Address", Icons.email_outlined, keyboardType: TextInputType.emailAddress),
@@ -82,7 +82,7 @@ class _SignupFormState extends State<SignupForm> {
           _buildTextField(_phoneController, "Phone Number", Icons.phone_outlined, keyboardType: TextInputType.phone),
           const SizedBox(height: 16),
           
-          // Role Selection (Matches your original design)
+          // Role Selection
           DropdownButtonFormField<String>(
             value: _selectedRole,
             decoration: InputDecoration(
@@ -109,8 +109,13 @@ class _SignupFormState extends State<SignupForm> {
           _isLoading 
             ? const CircularProgressIndicator() 
             : ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2E7D32),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
                 onPressed: _handleSignup,
-                child: const Text("CREATE ACCOUNT", style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text("CREATE ACCOUNT", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
               ),
           const SizedBox(height: 16),
           TextButton(
@@ -122,12 +127,18 @@ class _SignupFormState extends State<SignupForm> {
     );
   }
 
-  // Helper methods to keep the code clean
+  // UI Helpers
   Widget _buildTextField(TextEditingController ctrl, String label, IconData icon, {TextInputType? keyboardType}) {
     return TextFormField(
       controller: ctrl,
       keyboardType: keyboardType,
-      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+      decoration: InputDecoration(
+        labelText: label, 
+        prefixIcon: Icon(icon, color: const Color(0xFF2E7D32)),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+      ),
       validator: (v) => v!.isEmpty ? "Required" : null,
     );
   }
@@ -138,8 +149,11 @@ class _SignupFormState extends State<SignupForm> {
       obscureText: !visible,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: const Icon(Icons.lock_outline),
+        prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2E7D32)),
         suffixIcon: IconButton(icon: Icon(visible ? Icons.visibility : Icons.visibility_off), onPressed: toggle),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
       validator: (v) {
         if (v!.length < 6) return "Min 6 characters";

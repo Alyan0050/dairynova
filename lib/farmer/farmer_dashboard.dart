@@ -15,7 +15,7 @@ import '../models/farm_model.dart';
 import '../utils/app_theme.dart';
 import '../widgets/farmer_waiting_screen.dart';
 import '../widgets/farmer_rejected_screen.dart';
-import '../widgets/farmer_stat_card.dart'; // Warning cleared: Widget is now used
+import '../widgets/farmer_stat_card.dart'; 
 
 class FarmerDashboard extends StatefulWidget {
   const FarmerDashboard({super.key});
@@ -29,8 +29,49 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
   final User? user = FirebaseAuth.instance.currentUser;
   bool _isUploading = false;
   
-  //TODO: Replace with your actual ImgBB API Key
   final String _imgBBKey = "7dedc06d9f9ba46be0f57c22bada50b6";
+
+  // --- NEW: STOCK ALERT WIDGET ---
+  // This listens specifically for products with 0 stock for this farm
+  Widget _buildStockAlertBanner(String farmId) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('products')
+          .where('farmId', isEqualTo: farmId)
+          .where('stock', isEqualTo: 0)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "Action Required: ${snapshot.data!.docs.length} products are Out of Stock!",
+                    style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _selectedIndex = 1), // Jump to Products tab
+                  child: const Text("RESTOCK"),
+                )
+              ],
+            ),
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
 
   // --- IMAGE UPLOAD LOGIC (ImgBB) ---
   Future<void> _updateFarmPicture(String farmId) async {
@@ -39,7 +80,7 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
 
     if (pickedImage == null) return;
 
-    File imageFile = File(pickedImage.path); // Uses dart:io correctly
+    File imageFile = File(pickedImage.path); 
     setState(() => _isUploading = true);
 
     try {
@@ -53,7 +94,6 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
       if (response.statusCode == 200) {
         String downloadUrl = jsonResponse['data']['url'];
 
-        // Updates the farmPhotos array in Firestore for Dairy Nova
         await FirebaseFirestore.instance.collection('farms').doc(farmId).update({
           'farmPhotos': [downloadUrl], 
         });
@@ -69,7 +109,7 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
     }
   }
 
-  // --- DYNAMIC STATS LOGIC ---
+  // --- STATS BUILDERS ---
   Widget _buildEarningsStat(String farmId) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -160,7 +200,6 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
     );
   }
 
-  // --- NAVIGATION & PROFILE LOGIC ---
   void _logout() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
@@ -280,14 +319,14 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
 
   Widget _getScreen(String farmId, Map<String, dynamic> farmData) {
     switch (_selectedIndex) {
-      case 0: return _buildHomeTab(farmData);
+      case 0: return _buildHomeTab(farmId, farmData);
       case 1: return ProductManagementScreen(farmId: farmId);
       case 2: return FarmerOrdersScreen(farmId: farmId);
-      default: return _buildHomeTab(farmData);
+      default: return _buildHomeTab(farmId, farmData);
     }
   }
 
-  Widget _buildHomeTab(Map<String, dynamic> farm) {
+  Widget _buildHomeTab(String farmId, Map<String, dynamic> farm) {
     String? farmPhoto = (farm['farmPhotos'] != null && (farm['farmPhotos'] as List).isNotEmpty) 
         ? farm['farmPhotos'][0] 
         : null;
@@ -299,6 +338,10 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
         children: [
           _buildHeaderCard(farm, farmPhoto),
           const SizedBox(height: 24),
+          
+          // ADDED: STOCK ALERT SYSTEM
+          _buildStockAlertBanner(farmId),
+
           const Text("Morning Routine", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           ElevatedButton.icon(
@@ -328,7 +371,7 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(15),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
       ),
       child: Row(
         children: [
