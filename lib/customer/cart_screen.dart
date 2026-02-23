@@ -139,9 +139,9 @@ class _CartScreenState extends State<CartScreen> {
   Widget _buildBottom(CartProvider cart) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))],
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))],
       ),
       child: SizedBox(
         width: double.infinity,
@@ -172,20 +172,21 @@ class _CartScreenState extends State<CartScreen> {
     setState(() => _isPlacingOrder = true);
 
     try {
-      // Use the placeOrder method from CartProvider which now handles:
-      // 1. Transactional stock reduction
-      // 2. Fetching actual customer name
-      // 3. Saving the order with the correct customerId
-      final success = await cart.placeOrder(address);
+      // FIX: Passing orderType and frequency to the provider
+      final success = await cart.placeOrder(
+        address,
+        orderType: _orderType,
+        frequency: _orderType == 'subscription' ? _frequency : null,
+      );
 
       if (success && mounted) {
         Navigator.pop(context); // Go back to Home
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Order placed! Stock updated."), backgroundColor: Colors.green),
+          const SnackBar(content: Text("Order placed successfully!"), backgroundColor: Colors.green),
         );
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Order failed. Check stock or connection."), backgroundColor: Colors.red),
+          const SnackBar(content: Text("Stock check failed or connection error."), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
