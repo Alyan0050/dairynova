@@ -10,7 +10,7 @@ import '../models/farm_model.dart';
 import './farm_status_screen.dart';
 
 class RegisterFarmScreen extends StatefulWidget {
-  final Farm? existingFarm; // Add this to handle updates
+  final Farm? existingFarm;
   const RegisterFarmScreen({super.key, this.existingFarm});
 
   @override
@@ -24,7 +24,6 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
   late TextEditingController _locationController;
 
   XFile? _newCnicFile;
-  // Initialize with nulls to track which of the 5 photos are being replaced
   List<XFile?> _newFarmFiles = List.filled(5, null); 
   
   bool _isLoading = false;
@@ -34,7 +33,6 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill existing data if we are in "Edit Mode"
     _nameController = TextEditingController(text: widget.existingFarm?.name ?? "");
     _ownerController = TextEditingController(text: widget.existingFarm?.owner ?? "");
     _locationController = TextEditingController(text: widget.existingFarm?.location ?? "");
@@ -64,7 +62,6 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
   Future<void> _submitData() async {
     if (!_formKey.currentState!.validate()) return;
     
-    // Check if we have a CNIC (either a new one picked or an old one existing)
     bool hasCnic = _newCnicFile != null || (widget.existingFarm?.cnicUrl.isNotEmpty ?? false);
     if (!hasCnic) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("CNIC photo is required")));
@@ -72,14 +69,15 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
     }
 
     setState(() => _isLoading = true);
+    final String userUid = FirebaseAuth.instance.currentUser!.uid;
+
     try {
-      // 1. Process CNIC: Use new upload if picked, otherwise keep existing URL
+      // 1. Process Image Uploads
       String finalCnicUrl = widget.existingFarm?.cnicUrl ?? "";
       if (_newCnicFile != null) {
         finalCnicUrl = await _uploadImage(_newCnicFile!) ?? finalCnicUrl;
       }
 
-      // 2. Process 5 Photos: Re-upload only the ones that were changed
       List<String> finalFarmUrls = widget.existingFarm != null 
           ? List.from(widget.existingFarm!.farmPhotos) 
           : List.filled(5, "");
@@ -91,25 +89,40 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
         }
       }
 
-      // 3. Prepare the update
-      Map<String, dynamic> data = {
-        'ownerId': FirebaseAuth.instance.currentUser!.uid,
+      // 2. Prepare the Farm Data Object
+      Map<String, dynamic> farmData = {
+        'ownerId': userUid,
         'ownerName': _ownerController.text.trim(),
         'farmName': _nameController.text.trim(),
         'location': _locationController.text.trim(),
         'cnicUrl': finalCnicUrl,
         'farmPhotos': finalFarmUrls,
-        'status': 'pending', // Re-submitting always resets status to pending
-        'adminFeedback': "", // Clear old feedback
-        'flaggedImages': [], // Clear old flags
+        'status': 'pending', // Reset status for Admin review
+        'adminFeedback': "", 
+        'flaggedImages': [], 
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
+      // 3. Batch Write: Unified Update using ONLY 'status'
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      DocumentReference userRef = FirebaseFirestore.instance.collection('users').doc(userUid);
+      
       if (widget.existingFarm != null) {
-        await FirebaseFirestore.instance.collection('farms').doc(widget.existingFarm!.id).update(data);
+        DocumentReference farmRef = FirebaseFirestore.instance.collection('farms').doc(widget.existingFarm!.id);
+        batch.update(farmRef, farmData);
       } else {
-        await FirebaseFirestore.instance.collection('farms').add(data);
+        DocumentReference farmRef = FirebaseFirestore.instance.collection('farms').doc(); 
+        batch.set(farmRef, farmData);
+        batch.update(userRef, {'farmId': farmRef.id});
       }
+
+      // REMOVED hasFarmRegistered and isApproved fields
+      // Status 'pending' tells AuthScreen to show the waiting room
+      batch.update(userRef, {
+        'status': 'pending', 
+      });
+
+      await batch.commit();
 
       if (mounted) {
         Navigator.pushAndRemoveUntil(
@@ -125,7 +138,6 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
     }
   }
 
-  // Smart preview that handles New Files, Old URLs, and Flagged status
   Widget _imageBox(int index, bool isCnic) {
     bool isFlagged = !isCnic && (widget.existingFarm?.flaggedImages.contains(index) ?? false);
     String? existingUrl = isCnic ? widget.existingFarm?.cnicUrl : widget.existingFarm?.farmPhotos[index];
@@ -135,7 +147,6 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
       onTap: () => _pickImage(index, isCnic),
       child: Container(
         decoration: BoxDecoration(
-          // Red border if the admin flagged this specific image
           border: Border.all(color: isFlagged ? Colors.red : Colors.grey.shade400, width: isFlagged ? 2.5 : 1),
           borderRadius: BorderRadius.circular(12),
           color: isFlagged ? Colors.red.withOpacity(0.05) : Colors.white,
@@ -155,7 +166,10 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.existingFarm != null ? "Update Registration" : "Farm Registration")),
+      appBar: AppBar(
+        title: Text(widget.existingFarm != null ? "Update Registration" : "Farm Registration"),
+        backgroundColor: const Color(0xFF2E7D32),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -175,7 +189,7 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
               SizedBox(height: 150, width: double.infinity, child: _imageBox(0, true)),
               
               const SizedBox(height: 24),
-              const Text("Farm Photos (Red Borders Need Correction)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+              const Text("Farm Photos", style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               GridView.builder(
                 shrinkWrap: true,
@@ -185,7 +199,19 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
                 itemBuilder: (ctx, i) => _imageBox(i, false),
               ),
               const SizedBox(height: 40),
-              _isLoading ? const Center(child: CircularProgressIndicator()) : ElevatedButton(onPressed: _submitData, child: Text(widget.existingFarm != null ? "RE-SUBMIT" : "SUBMIT FOR REVIEW")),
+              _isLoading 
+                ? const Center(child: CircularProgressIndicator()) 
+                : ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E7D32),
+                      minimumSize: const Size(double.infinity, 50),
+                    ),
+                    onPressed: _submitData, 
+                    child: Text(
+                      widget.existingFarm != null ? "RE-SUBMIT" : "SUBMIT FOR REVIEW",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
             ],
           ),
         ),

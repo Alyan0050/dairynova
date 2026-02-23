@@ -31,57 +31,59 @@ class _SignupFormState extends State<SignupForm> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
-  // --- THE IMPROVED ROLE-BASED SIGNUP LOGIC ---
+  // --- STREAMLINED SIGNUP LOGIC ---
   Future<void> _handleSignup() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
       try {
-        // 1. Create the user account in Firebase Auth
+        // 1. Create account in Firebase Auth
         UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
 
-        // 2. Prepare user-specific data map
+        // 2. Prepare Profile Data (Removed hasFarmRegistered and isApproved)
         Map<String, dynamic> userData = {
           'uid': userCredential.user!.uid,
           'name': _nameController.text.trim(),
           'email': _emailController.text.trim(),
           'phone': _phoneController.text.trim(),
-          'role': _selectedRole, // 'Customer', 'Farm Owner', etc.
+          'role': _selectedRole,
           'createdAt': FieldValue.serverTimestamp(),
-          'status': 'Active',
+          // Single source of truth for account progress
+          'status': 'new', 
         };
 
-        // --- ROLE ISOLATION: Initialize specific data structures ---
+        // --- ROLE-SPECIFIC INITIALIZATION ---
         if (_selectedRole == 'Farm Owner') {
-          userData['hasFarmRegistered'] = false;
-          userData['farmId'] = ""; // Link to their farm document later
-          userData['isApproved'] = false; // For Super Admin verification
+          userData['farmId'] = ""; 
+          // Status 'new' ensures they are sent to RegisterFarmScreen
+          userData['status'] = 'new'; 
         } else if (_selectedRole == 'Customer') {
           userData['deliveryAddress'] = "";
+          userData['status'] = 'active'; 
           userData['totalOrders'] = 0;
-          userData['cart'] = []; // Initialize empty cart structure
+          userData['cart'] = []; 
         } else if (_selectedRole == 'Delivery Rider') {
+          userData['status'] = 'active';
           userData['isAvailable'] = false;
-          userData['currentLocation'] = null;
+          userData['totalDeliveries'] = 0;
         }
 
-        // 3. Save details to Firestore
+        // 3. Save profile to Firestore
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
             .set(userData);
 
         if (mounted) {
-          // 4. Signal success to the parent AuthScreen
           widget.onSignupSuccess(userCredential.user!, _selectedRole);
         }
       } on FirebaseAuthException catch (e) {
         _showError(e.message ?? "Signup Failed");
       } catch (e) {
-        _showError("An unexpected error occurred. Please try again.");
+        _showError("An unexpected error occurred.");
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }
@@ -107,11 +109,10 @@ class _SignupFormState extends State<SignupForm> {
           _buildTextField(_phoneController, "Phone Number", Icons.phone_outlined, keyboardType: TextInputType.phone),
           const SizedBox(height: 16),
           
-          // Role Selection Dropdown
           DropdownButtonFormField<String>(
             value: _selectedRole,
             decoration: InputDecoration(
-              labelText: "I am a...",
+              labelText: "Register as...",
               prefixIcon: const Icon(Icons.badge_outlined, color: Color(0xFF2E7D32)),
               filled: true,
               fillColor: Colors.white,
@@ -132,7 +133,7 @@ class _SignupFormState extends State<SignupForm> {
 
           const SizedBox(height: 24),
           _isLoading 
-            ? const CircularProgressIndicator() 
+            ? const CircularProgressIndicator(color: Color(0xFF2E7D32)) 
             : ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2E7D32),
@@ -152,7 +153,7 @@ class _SignupFormState extends State<SignupForm> {
     );
   }
 
-  // --- UI Helpers with Added Validation ---
+  // --- UI HELPERS ---
   Widget _buildTextField(TextEditingController ctrl, String label, IconData icon, {TextInputType? keyboardType}) {
     return TextFormField(
       controller: ctrl,
@@ -165,14 +166,15 @@ class _SignupFormState extends State<SignupForm> {
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       ),
       validator: (v) {
-        if (v == null || v.isEmpty) return "Required";
-        if (label == "Phone Number") {
-          // Validates PK numbers starting with 03 or +92
-          if (!RegExp(r'^((\+92)|(03))[0-9]{9,10}$').hasMatch(v.replaceAll(" ", ""))) {
-            return "Invalid PK Phone Number";
-          }
+        if (v == null || v.trim().isEmpty) return "Required";
+        if (label == "Email Address") {
+          final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+          if (!emailRegex.hasMatch(v.trim())) return "Enter a valid email";
         }
-        if (label == "Email Address" && !v.contains("@")) return "Invalid Email";
+        if (label == "Phone Number") {
+          final phoneRegex = RegExp(r'^((\+92)|(03))[0-9]{9,10}$');
+          if (!phoneRegex.hasMatch(v.trim().replaceAll(" ", ""))) return "Invalid PK number";
+        }
         return null;
       },
     );

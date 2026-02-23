@@ -24,13 +24,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
   void toggleView() => setState(() => isLogin = !isLogin);
 
-  /// --- THE GATEKEEPER LOGIC ---
-  /// Navigates the user based on their verified database role
+  /// --- THE SIMPLIFIED STATUS GATEKEEPER ---
+  /// Navigates the user strictly based on their 'status' field
   Future<void> handleAuthSuccess(User user, String dbRole) async {
     if (!mounted) return;
 
     // 1. Super Admin Redirect
-    // Logic: If Firestore confirms they are an Admin, let them in.
     if (dbRole == 'Super Admin') {
       Navigator.pushReplacement(
         context, 
@@ -39,37 +38,46 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
-    // 2. Farm Owner Redirect
+    // 2. Farm Owner Redirect (Updated Logic)
     if (dbRole == 'Farm Owner') {
       try {
-        // We check the 'users' document for the 'hasFarmRegistered' flag
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
             .get();
 
-        bool hasFarm = false;
         if (userDoc.exists) {
-          hasFarm = userDoc.data()?['hasFarmRegistered'] ?? false;
-        }
+          final data = userDoc.data()!;
+          
+          // Use 'status' as the single source of truth
+          String status = data['status'] ?? 'new'; 
 
-        if (mounted) {
-          if (!hasFarm) {
-            // New owner who hasn't registered their farm profile yet
-            Navigator.pushReplacement(
-              context, 
-              MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
-            );
-          } else {
-            // Established owner heading to their farm dashboard
-            Navigator.pushReplacement(
-              context, 
-              MaterialPageRoute(builder: (context) => const FarmerDashboard())
-            );
+          if (mounted) {
+            if (status == 'new') {
+              // CASE 1: Account created but registration not started
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
+              );
+            } else if (status == 'pending') {
+              // CASE 2: Registration submitted, awaiting Admin
+              _showWaitingDialog(context);
+            } else if (status == 'verified') {
+              // CASE 3: Admin approved, go to Dashboard
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => const FarmerDashboard())
+              );
+            } else {
+              // Fallback for unexpected status
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("Account Status: $status"))
+              );
+            }
           }
         }
       } catch (e) {
-        debugPrint("Error fetching farm status: $e");
+        debugPrint("Error fetching account status: $e");
       }
       return;
     } 
@@ -94,19 +102,45 @@ class _AuthScreenState extends State<AuthScreen> {
       }
       return;
     }
+  }
 
-    // Final Fallback for unexpected data
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Access restricted for: $dbRole"))
-      );
-    }
+  // Dialog to inform unverified farmers of their status
+  void _showWaitingDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Column(
+          children: [
+            Icon(Icons.hourglass_top_rounded, size: 50, color: Colors.orange),
+            SizedBox(height: 10),
+            Text("Review in Progress", style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          "Your farm registration is currently under review by our Admin team. Please check back later once your account has been verified.",
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          Center(
+            child: TextButton(
+              onPressed: () async {
+                await FirebaseAuth.instance.signOut();
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text("OK", style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold)),
+            ),
+          )
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F8E9), // Light Green Background
+      backgroundColor: const Color(0xFFF1F8E9),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -114,7 +148,6 @@ class _AuthScreenState extends State<AuthScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Branding Section
                 const Icon(Icons.agriculture, size: 80, color: Color(0xFF2E7D32)),
                 const SizedBox(height: 16),
                 const Text(
@@ -131,8 +164,6 @@ class _AuthScreenState extends State<AuthScreen> {
                   style: TextStyle(fontSize: 14, color: Colors.grey)
                 ),
                 const SizedBox(height: 40),
-                
-                // Auth Form Section
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: isLogin 
