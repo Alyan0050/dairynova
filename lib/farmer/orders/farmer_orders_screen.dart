@@ -36,6 +36,7 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
           _buildStatusFilter(),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
+              // Logic: Fetching ALL orders (both one-time and subscription) for this farm
               stream: FirebaseFirestore.instance
                   .collection('orders')
                   .where('farmId', isEqualTo: widget.farmId)
@@ -55,10 +56,12 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
 
                 var docs = snapshot.data!.docs;
 
+                // Local filtering for Status
                 if (_selectedFilter != 'All') {
                   docs = docs.where((doc) => doc['status'] == _selectedFilter).toList();
                 }
 
+                // Sorting: Newest first
                 docs.sort((a, b) {
                   var aDate = (a['orderDate'] ?? a['date']) as Timestamp?;
                   var bDate = (b['orderDate'] ?? b['date']) as Timestamp?;
@@ -116,15 +119,33 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
     List items = data['items'] ?? [];
     String address = data['deliveryAddress'] ?? data['address'] ?? 'No address provided';
     String customerName = data['customerName'] ?? "Customer";
-    String? customerPhone = data['customerPhone']; 
+    String? customerPhone = data['customerPhone'];
+    
+    // Subscription Awareness Logic
+    bool isSubscription = data['orderType'] == 'subscription';
+    String frequency = data['frequency'] ?? "";
 
     return Card(
       elevation: 3,
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       child: ExpansionTile(
-        title: Text(customerName, 
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.primary)),
+        // Key ensures the tile doesn't snap shut during state updates
+        key: PageStorageKey(id),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(customerName, 
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppColors.primary)),
+            ),
+            if (isSubscription)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(8)),
+                child: Text(frequency, style: const TextStyle(fontSize: 10, color: Colors.blue, fontWeight: FontWeight.bold)),
+              ),
+          ],
+        ),
         subtitle: Text("Status: $status | Rs. $total", 
             style: TextStyle(color: _getStatusColor(status), fontWeight: FontWeight.bold, fontSize: 13)),
         children: [
@@ -150,7 +171,13 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
                 const Text("Order Summary:", style: TextStyle(fontWeight: FontWeight.bold)),
                 ...items.map((item) => Padding(
                   padding: const EdgeInsets.only(left: 8, top: 4),
-                  child: Text("• ${item['name']} (x${item['quantity']})"),
+                  child: Row(
+                    children: [
+                      // Fix: Added Expanded to prevent layout overflow crashes
+                      Expanded(child: Text("• ${item['name']}", overflow: TextOverflow.ellipsis)),
+                      Text(" (x${item['quantity']})"),
+                    ],
+                  ),
                 )),
                 const SizedBox(height: 20),
                 const Text("Update Progress:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.grey)),
@@ -173,7 +200,6 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
     );
   }
 
-  // --- REFINED ACTION CHIP WITH STOCK REVERSAL LOGIC ---
   Widget _actionChip(BuildContext context, String orderId, String label, Color color, List items) {
     return ActionChip(
       label: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11)),
@@ -193,17 +219,14 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
 
                   if (productSnap.exists) {
                     int currentStock = productSnap.get('stock') ?? 0;
-                    int orderQty = item['quantity'] ?? 0;
-                    // REVERSAL: Add stock back
+                    int orderQty = (item['quantity'] as num).toInt();
                     transaction.update(productRef, {'stock': currentStock + orderQty});
                   }
                 }
               }
-              // Update order status
               transaction.update(firestore.collection('orders').doc(orderId), {'status': label});
             });
           } else {
-            // Regular status update
             await firestore.collection('orders').doc(orderId).update({'status': label});
           }
 
@@ -212,9 +235,6 @@ class _FarmerOrdersScreenState extends State<FarmerOrdersScreen> {
           }
         } catch (e) {
           debugPrint("Farmer Action Error: $e");
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Action failed: $e")));
-          }
         }
       },
     );

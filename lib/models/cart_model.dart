@@ -60,25 +60,33 @@ class CartProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // --- UPDATED: TRANSACTION-SAFE PLACE ORDER ---
-  Future<bool> placeOrder(String deliveryAddress, {String orderType = 'one-time', String? frequency}) async {
+  // --- UPDATED: HANDLES ONE-TIME AND SUBSCRIPTION ORDERS ---
+  Future<bool> placeOrder(
+    String deliveryAddress, {
+    String orderType = 'one-time', // 'one-time' or 'subscription'
+    String? frequency,             // 'Daily', 'Weekly', etc.
+    DateTime? startDate,           // Required if orderType is 'subscription'
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _items.isEmpty) return false;
 
     final firestore = FirebaseFirestore.instance;
 
     try {
+      // Get User Name
       final userDoc = await firestore.collection('users').doc(user.uid).get();
       String actualName = userDoc.data()?['name'] ?? "New Customer";
+      
+      // Identify the primary farm associated with this order (assumes all items from same farm)
       final String primaryFarmId = _items.values.first.product.farmId;
 
       await firestore.runTransaction((transaction) async {
-        // 1. ALL READS FIRST: Collect snapshots and validate stock
+        // 1. ALL READS: Validate stock snapshots
         List<Map<String, dynamic>> stockUpdates = [];
 
         for (var cartItem in _items.values) {
           DocumentReference productRef = firestore.collection('products').doc(cartItem.product.id);
-          DocumentSnapshot productSnap = await transaction.get(productRef); // READ operation
+          DocumentSnapshot productSnap = await transaction.get(productRef);
 
           if (!productSnap.exists) {
             throw Exception("Product ${cartItem.product.name} no longer exists.");
@@ -96,22 +104,38 @@ class CartProvider with ChangeNotifier {
           });
         }
 
-        // 2. ALL WRITES AFTER READS: Update stock and create order
+        // 2. ALL WRITES: Update stock and create order document
         for (var update in stockUpdates) {
-          transaction.update(update['ref'], {'stock': update['newStock']}); // WRITE operation
+          transaction.update(update['ref'], {'stock': update['newStock']});
         }
 
         DocumentReference orderRef = firestore.collection('orders').doc();
+        
+        // Subscription Logic: Set initial delivery date
+        DateTime? nextDelivery;
+        if (orderType == 'subscription') {
+          // If no start date provided, default to today
+          nextDelivery = startDate ?? DateTime.now();
+        }
+
         transaction.set(orderRef, {
           'customerId': user.uid,
           'customerName': actualName,
           'farmId': primaryFarmId,
           'deliveryAddress': deliveryAddress,
           'totalAmount': totalAmount,
-          'status': 'Pending',
-          'orderType': orderType, // Added for subscriptions
-          'frequency': frequency,  // Added for subscriptions
+          'status': 'Pending', // General order status
+          'orderType': orderType,
           'orderDate': FieldValue.serverTimestamp(),
+          
+          // --- Subscription Specific Fields ---
+          'frequency': orderType == 'subscription' ? frequency : null,
+          'subscriptionStatus': orderType == 'subscription' ? 'Active' : null,
+          'startDate': startDate != null ? Timestamp.fromDate(startDate) : null,
+          'nextDeliveryDate': nextDelivery != null ? Timestamp.fromDate(nextDelivery) : null,
+          'lastDeliveryDate': null, // To be updated when farmer completes a delivery
+          
+          // Items breakdown
           'items': _items.values.map((i) => {
             'productId': i.product.id,
             'name': i.product.name,

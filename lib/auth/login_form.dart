@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart'; //
-import '../utils/app_theme.dart'; //
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; 
+import '../utils/app_theme.dart';
 
 class LoginForm extends StatefulWidget {
   final VoidCallback onToggle;
@@ -38,28 +39,64 @@ class _LoginFormState extends State<LoginForm> {
       setState(() => _isLoading = true);
 
       try {
-        // Authenticate with Firebase
+        // 1. Authenticate with Firebase Auth
         UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
 
-        if (mounted) {
-          // Send user and role back to the AuthScreen "Gatekeeper"
+        // 2. Fetch User Data from Firestore to verify the real identity
+        DocumentSnapshot userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user!.uid)
+            .get();
+
+        if (userDoc.exists) {
+          final data = userDoc.data() as Map<String, dynamic>;
+          
+          // Get the actual role from DB. If missing (old data), default to Customer.
+          String dbRole = data.containsKey('role') ? data['role'] : 'Customer';
+
+          // 3. Admin & Role Verification
+          // We prioritize the Database Role. If it says "Super Admin", they get Admin access
+          // regardless of what they picked in the dropdown.
+          if (mounted) {
+            if (dbRole == 'Super Admin') {
+               ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Welcome back, Administrator"), backgroundColor: Colors.black87),
+              );
+            } else if (dbRole != _selectedRole) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("Logging in as $dbRole")),
+              );
+            }
+            
+            // Send the REAL database role back to the AuthScreen/Gatekeeper
+            widget.onLoginSuccess(userCredential.user!, dbRole);
+          }
+        } else {
+          // If user exists in Auth but not Firestore, fallback to dropdown choice
           widget.onLoginSuccess(userCredential.user!, _selectedRole);
         }
+
       } on FirebaseAuthException catch (e) {
-        // Show user-friendly error messages (e.g., "Wrong password")
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message ?? "Login Failed"), 
-            backgroundColor: AppColors.error
-          ),
-        );
+        _showError(e.message ?? "Login Failed");
+      } catch (e) {
+        _showError("An unexpected error occurred. Please try again.");
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message), 
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -68,12 +105,11 @@ class _LoginFormState extends State<LoginForm> {
       key: _formKey,
       child: Column(
         children: [
-          // Role Selection - Matches the Signup Screen
           DropdownButtonFormField<String>(
             value: _selectedRole,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: "Login as...",
-              prefixIcon: const Icon(Icons.badge_outlined, color: AppColors.primary),
+              prefixIcon: Icon(Icons.badge_outlined, color: AppColors.primary),
             ),
             items: _loginRoles.map((role) {
               return DropdownMenuItem(value: role, child: Text(role));
@@ -81,8 +117,6 @@ class _LoginFormState extends State<LoginForm> {
             onChanged: (val) => setState(() => _selectedRole = val!),
           ),
           const SizedBox(height: 16),
-
-          // Email Field
           TextFormField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -93,8 +127,6 @@ class _LoginFormState extends State<LoginForm> {
             validator: (value) => value!.isEmpty ? "Email is required" : null,
           ),
           const SizedBox(height: 16),
-
-          // Password Field
           TextFormField(
             controller: _passwordController,
             obscureText: !_isPasswordVisible,
@@ -108,20 +140,17 @@ class _LoginFormState extends State<LoginForm> {
             ),
             validator: (value) => value!.isEmpty ? "Password is required" : null,
           ),
-          
           const SizedBox(height: 24),
-
-          // Action Button
           _isLoading 
             ? const CircularProgressIndicator() 
             : ElevatedButton(
                 onPressed: _handleLogin,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                ),
                 child: const Text("LOGIN", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               ),
-          
           const SizedBox(height: 16),
-          
-          // Toggle to Signup
           TextButton(
             onPressed: widget.onToggle,
             child: const Text.rich(
