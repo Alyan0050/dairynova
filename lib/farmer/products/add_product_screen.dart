@@ -1,17 +1,17 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:io'; // Added for File support on mobile
+import 'dart:io'; 
 import 'package:flutter/foundation.dart' show kIsWeb; 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../utils/app_theme.dart';
-import '../../models/product_model.dart'; // Import your model
+import '../../models/product_model.dart'; 
 
 class AddProductScreen extends StatefulWidget {
   final String farmId;
-  final Product? existingProduct; // Added for Editing/Restocking
+  final Product? existingProduct; 
 
   const AddProductScreen({super.key, required this.farmId, this.existingProduct});
 
@@ -41,7 +41,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   void initState() {
     super.initState();
-    // Initialize with existing data if editing
     _nameController = TextEditingController(text: widget.existingProduct?.name ?? "");
     _priceController = TextEditingController(text: widget.existingProduct?.price.toString() ?? "");
     _stockController = TextEditingController(text: widget.existingProduct?.stock.toString() ?? "");
@@ -84,7 +83,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _submitProduct() async {
-    // If not editing, an image is mandatory. If editing, we can keep the old one.
     if (!_formKey.currentState!.validate() || (_productImage == null && _existingImageUrl == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please provide all details and a product photo"))
@@ -97,32 +95,31 @@ class _AddProductScreenState extends State<AddProductScreen> {
     try {
       String? imageUrl = _existingImageUrl;
       
-      // Only upload if a new image was picked
       if (_productImage != null) {
         imageUrl = await _uploadImage(_productImage!);
       }
 
       if (imageUrl != null) {
+        final int stockValue = int.parse(_stockController.text.trim());
+
         final Map<String, dynamic> productData = {
           'farmId': widget.farmId,
           'name': _nameController.text.trim(),
           'category': _selectedCategory,
           'unit': _selectedUnit,
           'price': double.parse(_priceController.text.trim()),
-          'stock': int.parse(_stockController.text.trim()), // Sync with Inventory Alert
+          'stock': stockValue, 
           'imageUrl': imageUrl,
-          'isAvailable': int.parse(_stockController.text.trim()) > 0,
+          'isAvailable': stockValue > 0,
           'updatedAt': FieldValue.serverTimestamp(),
         };
 
         if (widget.existingProduct != null) {
-          // UPDATE Existing
           await FirebaseFirestore.instance
               .collection('products')
               .doc(widget.existingProduct!.id)
               .update(productData);
         } else {
-          // ADD New
           productData['createdAt'] = FieldValue.serverTimestamp();
           await FirebaseFirestore.instance.collection('products').add(productData);
         }
@@ -258,9 +255,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: "Stock Quantity",
+                        hintText: "0 - 1000",
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      validator: (v) => v!.isEmpty ? "Required" : null,
+                      // Added Validation for stock constraints (0 - 1000)
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return "Required";
+                        final n = int.tryParse(v);
+                        if (n == null) return "Enter a number";
+                        if (n < 0) return "Min is 0";
+                        if (n > 1000) return "Max is 1000";
+                        return null;
+                      },
                     ),
                   ),
                 ],

@@ -6,104 +6,161 @@ import '../models/product_model.dart';
 import '../utils/app_theme.dart';
 import './cart_screen.dart';
 
-class FarmProductsScreen extends StatelessWidget {
+class FarmProductsScreen extends StatefulWidget {
   final String farmId;
   final String farmName;
+  final String categoryFilter; // Correctly defined parameter
 
   const FarmProductsScreen({
     super.key,
     required this.farmId,
     required this.farmName,
+    this.categoryFilter = 'All', // Default value to prevent null issues
   });
 
   @override
+  State<FarmProductsScreen> createState() => _FarmProductsScreenState();
+}
+
+class _FarmProductsScreenState extends State<FarmProductsScreen> {
+  late String _currentCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the local filter state with the value passed from CustomerHome
+    _currentCategory = widget.categoryFilter;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // We listen to the cart to update the badge and button states in real-time
     final cart = Provider.of<CartProvider>(context);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          farmName,
+          widget.farmName,
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         backgroundColor: AppColors.primary,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                  Future.microtask(() {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const CartScreen()),
-                    );
-                  });
-                },
-              ),
-              if (cart.itemCount > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: CircleAvatar(
-                    radius: 8,
-                    backgroundColor: Colors.red,
-                    child: Text(
-                      cart.itemCount.toString(),
-                      style: const TextStyle(fontSize: 10, color: Colors.white),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          _buildCartBadge(cart),
           const SizedBox(width: 8),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('products')
-            .where('farmId', isEqualTo: farmId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text("No products found."));
-          }
+      body: Column(
+        children: [
+          _buildFilterBanner(),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              // Logic: Filters by farmId AND category if a specific filter is active
+              stream: _currentCategory == 'All'
+                  ? FirebaseFirestore.instance
+                      .collection('products')
+                      .where('farmId', isEqualTo: widget.farmId)
+                      .snapshots()
+                  : FirebaseFirestore.instance
+                      .collection('products')
+                      .where('farmId', isEqualTo: widget.farmId)
+                      .where('category', isEqualTo: _currentCategory)
+                      .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.search_off, size: 60, color: Colors.grey),
+                        const SizedBox(height: 16),
+                        Text("No products found for $_currentCategory"),
+                      ],
+                    ),
+                  );
+                }
 
-          return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.65, // Increased height slightly for stock info
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
+                return GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.65,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    var product = Product.fromFirestore(
+                      snapshot.data!.docs[index].data() as Map<String, dynamic>,
+                      snapshot.data!.docs[index].id,
+                    );
+                    return _buildProductCard(context, product);
+                  },
+                );
+              },
             ),
-            itemCount: snapshot.data!.docs.length,
-            itemBuilder: (context, index) {
-              var product = Product.fromFirestore(
-                snapshot.data!.docs[index].data() as Map<String, dynamic>,
-                snapshot.data!.docs[index].id,
-              );
-              return _buildProductCard(context, product);
-            },
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
+  Widget _buildFilterBanner() {
+    if (_currentCategory == 'All') return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+      color: AppColors.primary.withOpacity(0.1),
+      child: Row(
+        children: [
+          const Icon(Icons.filter_list, size: 16, color: AppColors.primary),
+          const SizedBox(width: 8),
+          Text(
+            "Showing: $_currentCategory",
+            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: () => setState(() => _currentCategory = 'All'),
+            child: const Text("Clear Filter"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCartBadge(CartProvider cart) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.shopping_cart),
+          onPressed: () {
+            ScaffoldMessenger.of(context).clearSnackBars();
+            Navigator.push(context, MaterialPageRoute(builder: (_) => const CartScreen()));
+          },
+        ),
+        if (cart.itemCount > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: CircleAvatar(
+              radius: 8,
+              backgroundColor: Colors.red,
+              child: Text(
+                cart.itemCount.toString(),
+                style: const TextStyle(fontSize: 10, color: Colors.white),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildProductCard(BuildContext context, Product product) {
-    // listen: true is required here to rebuild button when cart quantity changes
     final cart = Provider.of<CartProvider>(context);
-    
-    // Check if more can be added based on current cart and available stock
     final bool canAdd = cart.canAddMore(product);
     final bool isOutOfStock = product.stock <= 0;
 
@@ -142,11 +199,7 @@ class FarmProductsScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(product.name, style: const TextStyle(fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                Text(
-                  "Rs. ${product.price} / ${product.unit}",
-                  style: const TextStyle(color: AppColors.primary, fontSize: 13),
-                ),
-                // Show current stock availability to the user
+                Text("Rs. ${product.price} / ${product.unit}", style: const TextStyle(color: AppColors.primary, fontSize: 13)),
                 Text(
                   isOutOfStock ? "Unavailable" : "Stock: ${product.stock} left",
                   style: TextStyle(
@@ -163,7 +216,6 @@ class FarmProductsScreen extends StatelessWidget {
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 4),
                     ),
-                    // Button disables if stock is 0 OR limit reached in cart
                     onPressed: !canAdd ? null : () {
                       cart.addItem(product);
                       ScaffoldMessenger.of(context).clearSnackBars();

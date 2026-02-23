@@ -30,12 +30,12 @@ class _CartScreenState extends State<CartScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("Confirm Order", style: TextStyle(color: Colors.white)),
+        title: const Text("Confirm Order", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.primary,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: cart.items.isEmpty
-          ? const Center(child: Text("Your cart is empty"))
+          ? _buildEmptyState()
           : Column(
               children: [
                 Expanded(
@@ -45,6 +45,8 @@ class _CartScreenState extends State<CartScreen> {
                         _buildItems(cart),
                         _buildSubscriptionPicker(), 
                         _buildAddress(),
+                        _buildPriceSummary(cart),
+                        const SizedBox(height: 20),
                       ],
                     ),
                   ),
@@ -52,6 +54,19 @@ class _CartScreenState extends State<CartScreen> {
                 _buildBottom(cart),
               ],
             ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.shopping_basket_outlined, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          const Text("Your cart is empty", style: TextStyle(fontSize: 18, color: Colors.grey)),
+        ],
+      ),
     );
   }
 
@@ -63,12 +78,19 @@ class _CartScreenState extends State<CartScreen> {
       itemCount: items.length,
       itemBuilder: (_, i) {
         final item = items[i];
-        return ListTile(
-          title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text("Rs ${item.product.price} x ${item.quantity}"),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            onPressed: () => cart.removeItem(item.product.id),
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(item.product.imageUrl, width: 50, height: 50, fit: BoxFit.cover),
+            ),
+            title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("Rs ${item.product.price} x ${item.quantity}"),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () => cart.removeItem(item.product.id),
+            ),
           ),
         );
       },
@@ -85,8 +107,14 @@ class _CartScreenState extends State<CartScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Order Type", style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
+            const Row(
+              children: [
+                Icon(Icons.repeat, size: 18, color: AppColors.primary),
+                SizedBox(width: 8),
+                const Text("Delivery Schedule", style: TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 _typeChip("one-time", "One-time"),
@@ -96,14 +124,24 @@ class _CartScreenState extends State<CartScreen> {
             ),
             if (_orderType == 'subscription') ...[
               const SizedBox(height: 15),
-              const Text("Delivery Frequency", style: TextStyle(fontSize: 12, color: Colors.grey)),
-              DropdownButton<String>(
-                value: _frequency,
-                isExpanded: true,
-                items: ['Daily', 'Weekly', 'Monthly'].map((String value) {
-                  return DropdownMenuItem<String>(value: value, child: Text(value));
-                }).toList(),
-                onChanged: (val) => setState(() => _frequency = val!),
+              const Text("How often should we deliver?", style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _frequency,
+                    isExpanded: true,
+                    items: ['Daily', 'Weekly', 'Monthly'].map((String value) {
+                      return DropdownMenuItem<String>(value: value, child: Text(value));
+                    }).toList(),
+                    onChanged: (val) => setState(() => _frequency = val!),
+                  ),
+                ),
               ),
             ],
           ],
@@ -113,11 +151,13 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Widget _typeChip(String type, String label) {
+    bool isSelected = _orderType == type;
     return ChoiceChip(
       label: Text(label),
-      selected: _orderType == type,
+      selected: isSelected,
       onSelected: (val) => setState(() => _orderType = type),
-      selectedColor: AppColors.primary.withOpacity(0.2),
+      selectedColor: AppColors.primary,
+      labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
     );
   }
 
@@ -126,16 +166,65 @@ class _CartScreenState extends State<CartScreen> {
       padding: const EdgeInsets.all(16),
       child: TextField(
         controller: _addressController,
+        maxLines: 2,
         decoration: InputDecoration(
           labelText: "Delivery Address",
-          hintText: "Enter your house/street info",
+          hintText: "Enter house #, street, and area",
           prefixIcon: const Icon(Icons.location_on, color: AppColors.primary),
+          filled: true,
+          fillColor: Colors.white,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );
   }
 
+  Widget _buildPriceSummary(CartProvider cart) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          _summaryRow("Subtotal", "Rs ${cart.totalAmount}"),
+          _summaryRow("Delivery Fee", "Rs 50"),
+          const Divider(),
+          _summaryRow("Total Payable", "Rs ${cart.totalAmount + 50}", isTotal: true),
+        ],
+      ),
+    );
+  }
+Widget _summaryRow(String label, String value, {bool isTotal = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      // We remove the MainAxisAlignment.between and use a Spacer instead
+      child: Row(
+        children: [
+          Text(
+            label, 
+            style: TextStyle(
+              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, 
+              fontSize: isTotal ? 16 : 14,
+            ),
+          ),
+          // This Spacer pushes the following text to the far right
+          const Spacer(), 
+          Text(
+            value, 
+            style: TextStyle(
+              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal, 
+              fontSize: isTotal ? 16 : 14, 
+              color: isTotal ? AppColors.primary : Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _buildBottom(CartProvider cart) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -154,13 +243,13 @@ class _CartScreenState extends State<CartScreen> {
           onPressed: _isPlacingOrder ? null : () => _handleCheckout(cart),
           child: _isPlacingOrder
               ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : Text("Place Order (Rs ${cart.totalAmount})", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              : Text("Place ${_orderType == 'subscription' ? 'Subscription' : 'Order'}", 
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         ),
       ),
     );
   }
 
-  // --- REFINED CHECKOUT HANDLER ---
   Future<void> _handleCheckout(CartProvider cart) async {
     final address = _addressController.text.trim();
     
@@ -172,7 +261,6 @@ class _CartScreenState extends State<CartScreen> {
     setState(() => _isPlacingOrder = true);
 
     try {
-      // FIX: Passing orderType and frequency to the provider
       final success = await cart.placeOrder(
         address,
         orderType: _orderType,
@@ -180,13 +268,18 @@ class _CartScreenState extends State<CartScreen> {
       );
 
       if (success && mounted) {
-        Navigator.pop(context); // Go back to Home
+        // Clear screen stack and return to home on success
+        Navigator.of(context).popUntil((route) => route.isFirst);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Order placed successfully!"), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text(_orderType == 'subscription' ? "Subscription started!" : "Order placed successfully!"), 
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Stock check failed or connection error."), backgroundColor: Colors.red),
+          const SnackBar(content: Text("Stock check failed. Some items might be unavailable."), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
