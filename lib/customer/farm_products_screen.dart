@@ -175,13 +175,15 @@ class _FarmProductsScreenState extends State<FarmProductsScreen> {
               children: [
                 ClipRRect(
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-                  child: Image.network(
-                    product.imageUrl,
-                    width: double.infinity,
-                    height: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
-                  ),
+                    child: (product.imageUrl != null && product.imageUrl.isNotEmpty)
+                        ? Image.network(
+                            product.imageUrl,
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(Icons.broken_image),
+                          )
+                        : Container(width: double.infinity, height: double.infinity, color: Colors.grey[200], child: const Icon(Icons.image),),
                 ),
                 if (isOutOfStock)
                   Container(

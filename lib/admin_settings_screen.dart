@@ -166,8 +166,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         CircleAvatar(
           radius: 35,
           backgroundColor: AppColors.primary,
-          backgroundImage: profilePic != null ? NetworkImage(profilePic) : null,
-          child: profilePic == null ? Text(name[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 24)) : null,
+          backgroundImage: (profilePic != null && profilePic.isNotEmpty) ? NetworkImage(profilePic) : null,
+          child: (profilePic == null || profilePic.isEmpty) ? Text(name[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 24)) : null,
         ),
         Positioned(
           bottom: -5,

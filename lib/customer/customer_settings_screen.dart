@@ -106,8 +106,8 @@ class _CustomerSettingsScreenState extends State<CustomerSettingsScreen> {
         CircleAvatar(
           radius: 60,
           backgroundColor: AppColors.primary.withOpacity(0.1),
-          backgroundImage: profilePic != null ? NetworkImage(profilePic) : null,
-          child: profilePic == null ? const Icon(Icons.person, size: 60, color: AppColors.primary) : null,
+          backgroundImage: (profilePic != null && profilePic.isNotEmpty) ? NetworkImage(profilePic) : null,
+          child: (profilePic == null || profilePic.isEmpty) ? const Icon(Icons.person, size: 60, color: AppColors.primary) : null,
         ),
         Positioned(
           bottom: 0,

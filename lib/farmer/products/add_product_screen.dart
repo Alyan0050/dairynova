@@ -148,8 +148,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         : Image.file(File(_productImage!.path), fit: BoxFit.cover);
     }
     
-    if (_existingImageUrl != null) {
-      return Image.network(_existingImageUrl!, fit: BoxFit.cover);
+    if (_existingImageUrl != null && _existingImageUrl!.isNotEmpty) {
+      return Image.network(_existingImageUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image));
     }
 
     return const Column(

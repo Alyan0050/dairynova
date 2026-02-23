@@ -56,9 +56,11 @@ class FarmerRejectedScreen extends StatelessWidget {
                       border: Border.all(color: Colors.red, width: 2),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: ClipRRect(
+                      child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
-                      child: Image.network(photos[photoIndex], width: 100, fit: BoxFit.cover),
+                      child: (photos[photoIndex] != null && photos[photoIndex].toString().isNotEmpty)
+                          ? Image.network(photos[photoIndex], width: 100, fit: BoxFit.cover)
+                          : Container(width: 100, height: 100, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
                     ),
                   );
                 },

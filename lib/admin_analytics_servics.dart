@@ -1,7 +1,14 @@
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AdminAnalytics {
-  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // Allows tests to inject a fake Firestore instance.
+  static FirebaseFirestore? _testDb;
+
+  static FirebaseFirestore get _db => _testDb ?? FirebaseFirestore.instance;
+
+  /// Set a test Firestore instance (only for tests).
+  static void setTestDb(FirebaseFirestore? firestore) => _testDb = firestore;
 
   // Stream for Total Revenue (Sum of all Delivered orders)
   static Stream<double> get totalRevenueStream => _db

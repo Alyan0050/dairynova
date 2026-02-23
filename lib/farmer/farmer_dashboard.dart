@@ -376,10 +376,10 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
       child: Row(
         children: [
           CircleAvatar(
-            radius: 35, 
-            backgroundColor: AppColors.primary, 
-            backgroundImage: farmPhoto != null ? NetworkImage(farmPhoto) : null,
-            child: farmPhoto == null ? const Icon(Icons.storefront, color: Colors.white, size: 30) : null,
+            radius: 35,
+            backgroundColor: AppColors.primary,
+            backgroundImage: (farmPhoto != null && farmPhoto.isNotEmpty) ? NetworkImage(farmPhoto) : null,
+            child: (farmPhoto == null || farmPhoto.isEmpty) ? const Icon(Icons.storefront, color: Colors.white, size: 30) : null,
           ),
           const SizedBox(width: 15),
           Expanded(
