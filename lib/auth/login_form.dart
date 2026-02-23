@@ -33,7 +33,7 @@ class _LoginFormState extends State<LoginForm> {
   bool _isLoading = false;
   bool _isPasswordVisible = false;
 
-  // --- THE FIREBASE LOGIN LOGIC ---
+  // --- ENFORCED ROLE VALIDATION LOGIC ---
   Future<void> _handleLogin() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -45,7 +45,7 @@ class _LoginFormState extends State<LoginForm> {
           password: _passwordController.text.trim(),
         );
 
-        // 2. Fetch User Data from Firestore to verify the real identity
+        // 2. Fetch User Data from Firestore to verify the actual role
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -53,30 +53,33 @@ class _LoginFormState extends State<LoginForm> {
 
         if (userDoc.exists) {
           final data = userDoc.data() as Map<String, dynamic>;
-          
-          // Get the actual role from DB. If missing (old data), default to Customer.
-          String dbRole = data.containsKey('role') ? data['role'] : 'Customer';
+          String dbRole = data['role'] ?? 'Customer'; // Real role from Firestore
 
-          // 3. Admin & Role Verification
-          // We prioritize the Database Role. If it says "Super Admin", they get Admin access
-          // regardless of what they picked in the dropdown.
           if (mounted) {
+            // --- NEW: STRICT ROLE VALIDATION ---
+            // Compares selected role with database role to prevent role hopping
+            if (dbRole != _selectedRole) {
+              // Sign out immediately if roles do not match
+              await FirebaseAuth.instance.signOut(); 
+              
+              _showError("Access Denied: You are registered as a $dbRole, not a $_selectedRole.");
+              return; // Halt login process
+            }
+
+            // 3. Success Feedback
             if (dbRole == 'Super Admin') {
-               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Welcome back, Administrator"), backgroundColor: Colors.black87),
-              );
-            } else if (dbRole != _selectedRole) {
-               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("Logging in as $dbRole")),
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Welcome, Administrator"), backgroundColor: Colors.black87),
               );
             }
-            
-            // Send the REAL database role back to the AuthScreen/Gatekeeper
+
+            // Proceed to routing in AuthScreen with the validated role
             widget.onLoginSuccess(userCredential.user!, dbRole);
           }
         } else {
-          // If user exists in Auth but not Firestore, fallback to dropdown choice
-          widget.onLoginSuccess(userCredential.user!, _selectedRole);
+          // Safety logout if Auth user exists but no Firestore profile is found
+          await FirebaseAuth.instance.signOut();
+          _showError("User profile not found. Please contact support.");
         }
 
       } on FirebaseAuthException catch (e) {
@@ -105,6 +108,7 @@ class _LoginFormState extends State<LoginForm> {
       key: _formKey,
       child: Column(
         children: [
+          // Role Selection Dropdown - Mandatory for current login logic
           DropdownButtonFormField<String>(
             value: _selectedRole,
             decoration: const InputDecoration(

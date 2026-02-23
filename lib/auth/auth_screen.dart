@@ -24,83 +24,90 @@ class _AuthScreenState extends State<AuthScreen> {
 
   void toggleView() => setState(() => isLogin = !isLogin);
 
-  /// --- THE SIMPLIFIED STATUS GATEKEEPER ---
-  /// Navigates the user strictly based on their 'status' field
-  Future<void> handleAuthSuccess(User user, String dbRole) async {
+  /// --- THE ENFORCED ROLE & STATUS GATEKEEPER ---
+  /// Compares the selected login role with the real role in Firestore
+  Future<void> handleAuthSuccess(User user, String selectedUiRole) async {
     if (!mounted) return;
 
-    // 1. Super Admin Redirect
-    if (dbRole == 'Super Admin') {
-      Navigator.pushReplacement(
-        context, 
-        MaterialPageRoute(builder: (context) => const AdminDashboard())
-      );
-      return;
-    }
+    try {
+      // 1. Fetch the actual profile from Firestore
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
 
-    // 2. Farm Owner Redirect (Updated Logic)
-    if (dbRole == 'Farm Owner') {
-      try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        String dbRole = data['role'] ?? ''; // Actual role from database
 
-        if (userDoc.exists) {
-          final data = userDoc.data()!;
-          
-          // Use 'status' as the single source of truth
+        // --- NEW: ROLE MISMATCH CHECK ---
+        // Prevents Farm Owners from logging in as Customers and vice versa
+        if (dbRole != selectedUiRole) {
+          await FirebaseAuth.instance.signOut(); // Immediately invalidate the session
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text("Access Denied: You are registered as a $dbRole, not a $selectedUiRole."),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          return; // Stop the routing process
+        }
+
+        // 2. Proceed with routing if roles match correctly
+        
+        // --- SUPER ADMIN ROUTE ---
+        if (dbRole == 'Super Admin') {
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const AdminDashboard())
+          );
+          return;
+        }
+
+        // --- FARM OWNER ROUTE ---
+        if (dbRole == 'Farm Owner') {
           String status = data['status'] ?? 'new'; 
 
           if (mounted) {
             if (status == 'new') {
-              // CASE 1: Account created but registration not started
               Navigator.pushReplacement(
                 context, 
                 MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
               );
             } else if (status == 'pending') {
-              // CASE 2: Registration submitted, awaiting Admin
               _showWaitingDialog(context);
             } else if (status == 'verified') {
-              // CASE 3: Admin approved, go to Dashboard
               Navigator.pushReplacement(
                 context, 
                 MaterialPageRoute(builder: (context) => const FarmerDashboard())
               );
-            } else {
-              // Fallback for unexpected status
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("Account Status: $status"))
-              );
             }
           }
+          return;
         }
-      } catch (e) {
-        debugPrint("Error fetching account status: $e");
-      }
-      return;
-    } 
 
-    // 3. Customer Redirect
-    if (dbRole == 'Customer') {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context, 
-          MaterialPageRoute(builder: (context) => const CustomerHome())
-        );
-      }
-      return;
-    }
+        // --- CUSTOMER ROUTE ---
+        if (dbRole == 'Customer') {
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const CustomerHome())
+          );
+          return;
+        }
 
-    // 4. Delivery Rider Redirect
-    if (dbRole == 'Delivery Rider') {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Rider Dashboard coming soon!"))
-        );
+        // --- DELIVERY RIDER ROUTE ---
+        if (dbRole == 'Delivery Rider') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Rider Dashboard coming soon!"))
+          );
+          return;
+        }
       }
-      return;
+    } catch (e) {
+      debugPrint("Auth Error: $e");
     }
   }
 
@@ -119,7 +126,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ],
         ),
         content: const Text(
-          "Your farm registration is currently under review by our Admin team. Please check back later once your account has been verified.",
+          "Your farm registration is currently under review by our Admin team. Please check back later.",
           textAlign: TextAlign.center,
         ),
         actions: [
