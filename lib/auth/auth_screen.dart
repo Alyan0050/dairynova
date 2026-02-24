@@ -21,16 +21,17 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
+  bool isLoading = false; // Track loading state for the gatekeeper
 
   void toggleView() => setState(() => isLogin = !isLogin);
 
   /// --- THE ENFORCED ROLE & STATUS GATEKEEPER ---
-  /// Compares the selected login role with the real role in Firestore
   Future<void> handleAuthSuccess(User user, String selectedUiRole) async {
     if (!mounted) return;
 
+    setState(() => isLoading = true); // Start loading
+
     try {
-      // 1. Fetch the actual profile from Firestore
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -38,80 +39,52 @@ class _AuthScreenState extends State<AuthScreen> {
 
       if (userDoc.exists) {
         final data = userDoc.data()!;
-        String dbRole = data['role'] ?? ''; // Actual role from database
+        String dbRole = data['role'] ?? '';
 
-        // --- NEW: ROLE MISMATCH CHECK ---
-        // Prevents Farm Owners from logging in as Customers and vice versa
+        // Role Mismatch Check
         if (dbRole != selectedUiRole) {
-          await FirebaseAuth.instance.signOut(); // Immediately invalidate the session
+          await FirebaseAuth.instance.signOut();
           if (mounted) {
+            setState(() => isLoading = false);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text("Access Denied: You are registered as a $dbRole, not a $selectedUiRole."),
+                content: Text("Access Denied: You are registered as $dbRole."),
                 backgroundColor: Colors.red,
                 behavior: SnackBarBehavior.floating,
               ),
             );
           }
-          return; // Stop the routing process
-        }
-
-        // 2. Proceed with routing if roles match correctly
-        
-        // --- SUPER ADMIN ROUTE ---
-        if (dbRole == 'Super Admin') {
-          Navigator.pushReplacement(
-            context, 
-            MaterialPageRoute(builder: (context) => const AdminDashboard())
-          );
           return;
         }
 
-        // --- FARM OWNER ROUTE ---
-        if (dbRole == 'Farm Owner') {
-          String status = data['status'] ?? 'new'; 
-
-          if (mounted) {
+        // Routing Logic
+        if (mounted) {
+          if (dbRole == 'Super Admin') {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AdminDashboard()));
+          } else if (dbRole == 'Farm Owner') {
+            String status = data['status'] ?? 'new'; 
             if (status == 'new') {
-              Navigator.pushReplacement(
-                context, 
-                MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
-              );
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const RegisterFarmScreen()));
             } else if (status == 'pending') {
+              setState(() => isLoading = false);
               _showWaitingDialog(context);
             } else if (status == 'verified') {
-              Navigator.pushReplacement(
-                context, 
-                MaterialPageRoute(builder: (context) => const FarmerDashboard())
-              );
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const FarmerDashboard()));
             }
+          } else if (dbRole == 'Customer') {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const CustomerHome()));
+          } else if (dbRole == 'Delivery Rider') {
+            setState(() => isLoading = false);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Rider Dashboard coming soon!")));
           }
-          return;
-        }
-
-        // --- CUSTOMER ROUTE ---
-        if (dbRole == 'Customer') {
-          Navigator.pushReplacement(
-            context, 
-            MaterialPageRoute(builder: (context) => const CustomerHome())
-          );
-          return;
-        }
-
-        // --- DELIVERY RIDER ROUTE ---
-        if (dbRole == 'Delivery Rider') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Rider Dashboard coming soon!"))
-          );
-          return;
         }
       }
     } catch (e) {
       debugPrint("Auth Error: $e");
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
-  // Dialog to inform unverified farmers of their status
   void _showWaitingDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -126,7 +99,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ],
         ),
         content: const Text(
-          "Your farm registration is currently under review by our Admin team. Please check back later.",
+          "Your farm registration is under review. Please check back later.",
           textAlign: TextAlign.center,
         ),
         actions: [
@@ -147,48 +120,54 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F8E9),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.agriculture, size: 80, color: Color(0xFF2E7D32)),
-                const SizedBox(height: 16),
-                const Text(
-                  "Dairy Nova", 
-                  style: TextStyle(
-                    fontSize: 28, 
-                    fontWeight: FontWeight.bold, 
-                    color: Color(0xFF2E7D32),
-                    letterSpacing: 1.5,
-                  )
+      backgroundColor: const Color(0xFFF1F8E9), // Matches your logo's light green theme
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // LOGO: Using the asset 
+                    Image.asset(
+                      'assets/images/logo.png',
+                      height: 180, 
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(height: 30),
+                    
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: isLogin 
+                        ? LoginForm(
+                            key: const ValueKey("LoginForm"),
+                            onToggle: toggleView, 
+                            onLoginSuccess: handleAuthSuccess
+                          ) 
+                        : SignupForm(
+                            key: const ValueKey("SignupForm"),
+                            onToggle: toggleView,
+                            onSignupSuccess: handleAuthSuccess
+                          ),
+                    ),
+                  ],
                 ),
-                const Text(
-                  "Freshness at your doorstep", 
-                  style: TextStyle(fontSize: 14, color: Colors.grey)
-                ),
-                const SizedBox(height: 40),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: isLogin 
-                    ? LoginForm(
-                        key: const ValueKey("LoginForm"),
-                        onToggle: toggleView, 
-                        onLoginSuccess: handleAuthSuccess
-                      ) 
-                    : SignupForm(
-                        key: const ValueKey("SignupForm"),
-                        onToggle: toggleView,
-                        onSignupSuccess: handleAuthSuccess
-                      ),
-                ),
-              ],
+              ),
             ),
           ),
-        ),
+          // Loading Overlay
+          if (isLoading)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: const Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF2E7D32),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
