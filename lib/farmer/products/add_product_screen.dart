@@ -36,7 +36,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   bool _isLoading = false;
   final ImagePicker _picker = ImagePicker();
 
-  final String _apiKey = "7dedc06d9f9ba46be0f57c22bada50b6"; 
+  final String _apiKey = "35a63ea828f028776d7fb98b32f08d10"; 
 
   @override
   void initState() {
@@ -148,8 +148,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         : Image.file(File(_productImage!.path), fit: BoxFit.cover);
     }
     
-    if (_existingImageUrl != null && _existingImageUrl!.isNotEmpty) {
-      return Image.network(_existingImageUrl!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image));
+    if (_existingImageUrl != null) {
+      return Image.network(_existingImageUrl!, fit: BoxFit.cover);
     }
 
     return const Column(

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -154,13 +153,11 @@ class _RegisterFarmScreenState extends State<RegisterFarmScreen> {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(11),
-          child: newFile != null
-              ? (kIsWeb
-                  ? Image.network(newFile.path, fit: BoxFit.cover)
-                  : Image.file(File(newFile.path), fit: BoxFit.cover))
-              : (existingUrl != null && existingUrl.isNotEmpty)
-                  ? Image.network(existingUrl, fit: BoxFit.cover)
-                  : const Center(child: Icon(Icons.add_a_photo, color: Colors.grey)),
+          child: newFile != null 
+            ? Image.network(newFile.path, fit: BoxFit.cover) 
+            : (existingUrl != null && existingUrl.isNotEmpty)
+              ? Image.network(existingUrl, fit: BoxFit.cover)
+              : const Center(child: Icon(Icons.add_a_photo, color: Colors.grey)),
         ),
       ),
     );

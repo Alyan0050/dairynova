@@ -109,15 +109,13 @@ class ProductManagementScreen extends StatelessWidget {
         ),
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: (product.imageUrl != null && product.imageUrl.isNotEmpty)
-              ? Image.network(
-                  product.imageUrl,
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (ctx, _, __) => const Icon(Icons.broken_image, size: 40),
-                )
-              : Container(width: 60, height: 60, color: Colors.grey[200], child: const Icon(Icons.image, size: 32)),
+          child: Image.network(
+            product.imageUrl, 
+            width: 60, 
+            height: 60, 
+            fit: BoxFit.cover,
+            errorBuilder: (ctx, _, __) => const Icon(Icons.broken_image, size: 40),
+          ),
         ),
         title: Text(
           product.name, 

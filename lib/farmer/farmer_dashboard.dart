@@ -29,7 +29,7 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
   final User? user = FirebaseAuth.instance.currentUser;
   bool _isUploading = false;
   
-  final String _imgBBKey = "7dedc06d9f9ba46be0f57c22bada50b6";
+  final String _imgBBKey = "35a63ea828f028776d7fb98b32f08d10";
 
   // --- NEW: STOCK ALERT WIDGET ---
   // This listens specifically for products with 0 stock for this farm
@@ -376,10 +376,10 @@ class _FarmerDashboardState extends State<FarmerDashboard> {
       child: Row(
         children: [
           CircleAvatar(
-            radius: 35,
-            backgroundColor: AppColors.primary,
-            backgroundImage: (farmPhoto != null && farmPhoto.isNotEmpty) ? NetworkImage(farmPhoto) : null,
-            child: (farmPhoto == null || farmPhoto.isEmpty) ? const Icon(Icons.storefront, color: Colors.white, size: 30) : null,
+            radius: 35, 
+            backgroundColor: AppColors.primary, 
+            backgroundImage: farmPhoto != null ? NetworkImage(farmPhoto) : null,
+            child: farmPhoto == null ? const Icon(Icons.storefront, color: Colors.white, size: 30) : null,
           ),
           const SizedBox(width: 15),
           Expanded(

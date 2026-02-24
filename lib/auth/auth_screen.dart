@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import './auth_logic.dart';
 
 // Dashboards
 import '../admin_dashboard.dart';
@@ -32,44 +31,80 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       // 1. Fetch the actual profile from Firestore
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-      final data = userDoc.exists ? userDoc.data() : null;
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
 
-      final action = determineAuthAction(data, selectedUiRole);
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        String dbRole = data['role'] ?? ''; // Actual role from database
 
-      switch (action) {
-        case AuthAction.denyAccess:
-          await FirebaseAuth.instance.signOut();
+        // --- NEW: ROLE MISMATCH CHECK ---
+        // Prevents Farm Owners from logging in as Customers and vice versa
+        if (dbRole != selectedUiRole) {
+          await FirebaseAuth.instance.signOut(); // Immediately invalidate the session
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text("Access Denied: You are registered with a different role."),
+                content: Text("Access Denied: You are registered as a $dbRole, not a $selectedUiRole."),
                 backgroundColor: Colors.red,
                 behavior: SnackBarBehavior.floating,
               ),
             );
           }
+          return; // Stop the routing process
+        }
+
+        // 2. Proceed with routing if roles match correctly
+        
+        // --- SUPER ADMIN ROUTE ---
+        if (dbRole == 'Super Admin') {
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const AdminDashboard())
+          );
           return;
-        case AuthAction.routeAdmin:
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AdminDashboard()));
+        }
+
+        // --- FARM OWNER ROUTE ---
+        if (dbRole == 'Farm Owner') {
+          String status = data['status'] ?? 'new'; 
+
+          if (mounted) {
+            if (status == 'new') {
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => const RegisterFarmScreen())
+              );
+            } else if (status == 'pending') {
+              _showWaitingDialog(context);
+            } else if (status == 'verified') {
+              Navigator.pushReplacement(
+                context, 
+                MaterialPageRoute(builder: (context) => const FarmerDashboard())
+              );
+            }
+          }
           return;
-        case AuthAction.routeFarmNew:
-          if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const RegisterFarmScreen()));
+        }
+
+        // --- CUSTOMER ROUTE ---
+        if (dbRole == 'Customer') {
+          Navigator.pushReplacement(
+            context, 
+            MaterialPageRoute(builder: (context) => const CustomerHome())
+          );
           return;
-        case AuthAction.routeFarmPending:
-          _showWaitingDialog(context);
+        }
+
+        // --- DELIVERY RIDER ROUTE ---
+        if (dbRole == 'Delivery Rider') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Rider Dashboard coming soon!"))
+          );
           return;
-        case AuthAction.routeFarmVerified:
-          if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const FarmerDashboard()));
-          return;
-        case AuthAction.routeCustomer:
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const CustomerHome()));
-          return;
-        case AuthAction.routeRider:
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Rider Dashboard coming soon!")));
-          return;
-        case AuthAction.noAction:
-          return;
+        }
       }
     } catch (e) {
       debugPrint("Auth Error: $e");

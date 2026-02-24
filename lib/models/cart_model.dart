@@ -66,28 +66,26 @@ class CartProvider with ChangeNotifier {
     String orderType = 'one-time', // 'one-time' or 'subscription'
     String? frequency,             // 'Daily', 'Weekly', etc.
     DateTime? startDate,           // Required if orderType is 'subscription'
-    FirebaseFirestore? firestore,  // optional injection for tests
-    dynamic userForTest,           // optional user injection (MockUser)
   }) async {
-    final user = userForTest ?? FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
     if (user == null || _items.isEmpty) return false;
 
-    final _firestore = firestore ?? FirebaseFirestore.instance;
+    final firestore = FirebaseFirestore.instance;
 
     try {
       // Get User Name
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      final userDoc = await firestore.collection('users').doc(user.uid).get();
       String actualName = userDoc.data()?['name'] ?? "New Customer";
       
       // Identify the primary farm associated with this order (assumes all items from same farm)
       final String primaryFarmId = _items.values.first.product.farmId;
 
-      await _firestore.runTransaction((transaction) async {
+      await firestore.runTransaction((transaction) async {
         // 1. ALL READS: Validate stock snapshots
         List<Map<String, dynamic>> stockUpdates = [];
 
         for (var cartItem in _items.values) {
-          DocumentReference productRef = _firestore.collection('products').doc(cartItem.product.id);
+          DocumentReference productRef = firestore.collection('products').doc(cartItem.product.id);
           DocumentSnapshot productSnap = await transaction.get(productRef);
 
           if (!productSnap.exists) {
@@ -111,7 +109,7 @@ class CartProvider with ChangeNotifier {
           transaction.update(update['ref'], {'stock': update['newStock']});
         }
 
-        DocumentReference orderRef = _firestore.collection('orders').doc();
+        DocumentReference orderRef = firestore.collection('orders').doc();
         
         // Subscription Logic: Set initial delivery date
         DateTime? nextDelivery;

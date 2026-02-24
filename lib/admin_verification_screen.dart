@@ -18,11 +18,7 @@ class AdminVerificationScreen extends StatelessWidget {
               panEnabled: true,
               minScale: 0.5,
               maxScale: 4.0,
-              child: Center(
-                child: (imageUrl != null && imageUrl.isNotEmpty)
-                    ? Image.network(imageUrl)
-                    : Container(color: Colors.black, child: const Icon(Icons.broken_image, color: Colors.white)),
-              ),
+              child: Center(child: Image.network(imageUrl)),
             ),
             Positioned(
               top: 40, right: 20,
@@ -107,11 +103,9 @@ class AdminVerificationScreen extends StatelessWidget {
                 InkWell(
                   onTap: () => _openFullScreenImage(context, farm.cnicUrl),
                   child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: (farm.cnicUrl != null && farm.cnicUrl.isNotEmpty)
-                          ? Image.network(farm.cnicUrl, height: 180, fit: BoxFit.cover)
-                          : Container(height: 180, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
-                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(farm.cnicUrl, height: 180, fit: BoxFit.cover),
+                  ),
                 ),
                 
                 const SizedBox(height: 20),
@@ -126,11 +120,9 @@ class AdminVerificationScreen extends StatelessWidget {
                     children: [
                       InkWell(
                         onTap: () => _openFullScreenImage(context, farm.farmPhotos[i]),
-                          child: ClipRRect(
+                        child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: (farm.farmPhotos[i] != null && farm.farmPhotos[i].toString().isNotEmpty)
-                              ? Image.network(farm.farmPhotos[i], fit: BoxFit.cover, width: double.infinity, height: 100)
-                              : Container(width: double.infinity, height: 100, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
+                          child: Image.network(farm.farmPhotos[i], fit: BoxFit.cover, width: double.infinity, height: 100),
                         ),
                       ),
                       Positioned(

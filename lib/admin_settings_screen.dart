@@ -20,7 +20,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   bool _notif = true;
   bool _darkMode = false; 
   bool _isUploading = false;
-  final String _imgBBKey = "YOUR_IMGBB_API_KEY";
+  final String _imgBBKey = "35a63ea828f028776d7fb98b32f08d10";
 
   Future<void> _updateProfilePicture() async {
     final ImagePicker picker = ImagePicker();
@@ -166,8 +166,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         CircleAvatar(
           radius: 35,
           backgroundColor: AppColors.primary,
-          backgroundImage: (profilePic != null && profilePic.isNotEmpty) ? NetworkImage(profilePic) : null,
-          child: (profilePic == null || profilePic.isEmpty) ? Text(name[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 24)) : null,
+          backgroundImage: profilePic != null ? NetworkImage(profilePic) : null,
+          child: profilePic == null ? Text(name[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 24)) : null,
         ),
         Positioned(
           bottom: -5,

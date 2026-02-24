@@ -83,14 +83,7 @@ class _CartScreenState extends State<CartScreen> {
           child: ListTile(
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: (item.product.imageUrl != null && item.product.imageUrl.isNotEmpty)
-                  ? Image.network(item.product.imageUrl, width: 50, height: 50, fit: BoxFit.cover)
-                  : Container(
-                      width: 50,
-                      height: 50,
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.image, size: 24, color: Colors.grey),
-                    ),
+              child: Image.network(item.product.imageUrl, width: 50, height: 50, fit: BoxFit.cover),
             ),
             title: Text(item.product.name, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text("Rs ${item.product.price} x ${item.quantity}"),

@@ -19,7 +19,7 @@ class CustomerSettingsScreen extends StatefulWidget {
 class _CustomerSettingsScreenState extends State<CustomerSettingsScreen> {
   final User? user = FirebaseAuth.instance.currentUser;
   bool _isUploading = false;
-  final String _imgBBKey = "7dedc06d9f9ba46be0f57c22bada50b6";
+  final String _imgBBKey = "35a63ea828f028776d7fb98b32f08d10";
 
   Future<void> _updateProfilePicture() async {
     final ImagePicker picker = ImagePicker();

@@ -1,0 +1,451 @@
+Exhaustive per-file annotated algorithm report (lib/)
+Generated: 2026-02-23
+
+Purpose:
+- This file documents algorithmic patterns used across the app's `lib/` sources. For each source it lists relevant lines or code markers, explains the pattern, gives complexity where meaningful, why it's used, and recommended improvements for scale or correctness.
+
+Notes on format:
+- File header: path
+- Each entry: Line <n>: <code token or snippet> -> <algorithmic description, complexity, rationale, suggestion>
+
+---
+
+[lib/models/cart_model.dart]
+Line 1-20: class CartItem / CartProvider -> uses `Map<String,CartItem>` for cart storage.
+	- Algorithmic pattern: Hash map keyed by product id for O(1) addition/removal/lookup.
+	- Complexity: O(1) average for add/remove/contains operations.
+	- Rationale: Fast access to items by id; small memory overhead.
+	- Suggestion: Keep keys stable; consider ordered list wrapper if order matters.
+
+Line 30-50: totalAmount {} iteration -> linear aggregation
+	- Pattern: Iteration over map entries to compute sum.
+	- Complexity: O(k), k = number of cart items.
+	- Rationale: Small k in practice; direct and simple.
+
+Line 70-84: canAddMore/addItem -> conditional checks using product.stock
+	- Pattern: Bound checks: compare quantity to stock (constant-time comparisons)
+	- Suggestion: If multiple clients change stock concurrently, rely on transaction at placeOrder for final validation (already implemented).
+
+Line 85: `await _firestore.runTransaction((transaction) async {` -> Firestore transaction
+	- Pattern: Transactional read-then-commit pattern to ensure atomic stock validation + update + order creation.
+	- Complexity: O(k) reads and O(k+1) writes where k = cart size (product docs + order doc); network/IO dominates.
+	- Rationale: Prevent overselling; ensure consistent stock update and order creation.
+	- Caveats: Firestore transaction size/time limits; keep transactions short.
+	- Suggestion: For very large carts, consider chunking or server-side orchestration.
+
+Line 91: `transaction.get(productRef)` -> transactional read
+	- Pattern: snapshot read in txn; ensures value consistency for subsequent updates.
+
+Line 111: `transaction.update(...)` -> transactional write updates stock
+	- Pattern: batched within txn to make multiple writes atomic.
+
+Line 123-141: `transaction.set(orderRef, {... 'items': _items.values.map(...).toList() })` -> mapping/serialization
+	- Pattern: transformation of in-memory objects to serializable structures followed by DB write.
+
+-- Improvement notes:
+	- Validate and limit cart size client-side to avoid txn limits.
+	- Consider optimistic UI with eventual server confirmation for UX, but keep txn for final consistency.
+
+---
+
+[lib/models/product_model.dart]
+This file defines the `Product` model and conversion helpers.
+
+Line 1..: `factory Product.fromFirestore(Map<String, dynamic> data, String id)`
+	- Pattern: Defensive parsing and normalization (handle int/double/String price and stock).
+	- Complexity: O(1) per document.
+	- Rationale: Firestore's loose typing requires explicit parsing to typed domain model.
+
+Line 51: `toMap()` serialization
+	- Pattern: Map construction for persistent writes; O(1) per product.
+
+-- Improvement notes:
+	- Add unit tests for edge-case string numeric formats and nulls.
+
+---
+
+[lib/auth/auth_logic.dart]
+Line 1..: `enum AuthAction` and `determineAuthAction(profileData, selectedUiRole)`
+	- Pattern: Finite-state decision logic implemented as conditionals/switch.
+	- Complexity: O(1) decision tree.
+	- Rationale: Decouple UI routing logic from async IO; makes logic easy to unit test.
+	- Suggestion: Keep pure and small; add exhaustive unit tests (already added `test/unit/auth_logic_test.dart`).
+
+---
+
+[lib/auth/auth_screen.dart]
+Key markers:
+Line ~1: `FirebaseFirestore.instance.collection('users').doc(user.uid).get()` -> DB lookup
+	- Pattern: Read single document (O(1) network op).
+
+Line ~X: `final action = determineAuthAction(data, selectedUiRole); switch(action) { ... }` -> dispatch
+	- Pattern: Dispatch table via enum -> routes to different screens based on role/status.
+	- Complexity: O(1) after DB read.
+	- Suggestion: If repeated reads happen frequently, consider caching profile or listening to user doc stream.
+
+---
+
+[lib/customer/cart_screen.dart]
+Markers:
+ - Dropdown/selection construction using `.map()` -> O(m) where m = options.
+ - UI validation logic (order type, frequency) -> constant time checks.
+ - Calls `CartProvider.placeOrder(...)` which is transactional (see `cart_model`).
+
+---
+
+[lib/customer/customer_home.dart]
+Key patterns:
+Line ~179: `.where('status', isEqualTo: 'verified')` -> server-side filter (index-backed)
+	- Pattern: Server query; efficient when index present.
+
+Line ~188: `docs.where((doc) { final name = ...; return name.contains(searchQuery); }).toList()` -> client-side substring search.
+	- Complexity: O(n * m) where n = number of docs returned, m = avg name length.
+	- Rationale: Simple search for small datasets.
+	- Suggestion: For large datasets, use precomputed searchable tokens, case-insensitive indices, or an external search service.
+
+---
+
+[lib/customer/farm_products_screen.dart]
+Markers:
+ - Server-side compound `.where('farmId', ...).where('category', ...)` -> Firestore compound query (requires composite index if multiple fields combined).
+ - UI `.map()`/`.toList()` for widget building.
+
+---
+
+[lib/customer/customer_orders_screen.dart]
+Line 34: server `.where('customerId', isEqualTo: user.uid)`
+	- Efficient server-side filtering to limit result set.
+
+Line 48: `docs.sort((a,b) { ... });` -> client-side sort
+	- Complexity: O(n log n) for sorting n docs.
+	- Rationale: Custom ordering logic beyond server-side capabilities or convenience.
+	- Suggestion: prefer `.orderBy('orderDate', descending: true)` server-side when possible to reduce client compute and bandwidth.
+
+Line 184-204: transactional stock reversal
+	- Pattern: Firestore transaction used to read product docs and update stock counts, then update order status.
+	- Complexity: O(k) reads/writes where k = number of products in order.
+	- Rationale: Ensure atomicity on cancel/delivery revert operations.
+
+---
+
+[lib/farmer/farmer_dashboard.dart]
+Patterns:
+ - Multiple `StreamBuilder<QuerySnapshot>` queries with server-side `.where` filters (farmId, stock==0, status).
+ - UI grouping and summarization; occasionally client-side `.where` to filter lists.
+ - Use of `IndexedStack` for navigation state (no algorithmic complexity, but relevant to render management).
+
+---
+
+[lib/farmer/orders/farmer_orders_screen.dart]
+Line 42: server `.where('farmId', ...)`
+Line 61: client `docs = docs.where((doc) => doc['status'] == _selectedFilter).toList();` -> client filter O(n)
+Line 65: `docs.sort((a,b) ...)` -> O(n log n)
+Line 213: transaction to revert or update stock/status -> O(k)
+
+Recommendation: For interactive UI filters, consider client-side derived caches that avoid repeated sorting/filtering if snapshots are large, or better - request filtered snapshots for each UI filter.
+
+---
+
+[lib/farmer/orders/daily_delivery_list.dart]
+Line 70: server `.where('orderType','subscription')` and other filters for subscription logic.
+Line 183: `items.map(...).join(', ')` -> linear string concatenation over items.
+Line 207: `Set<DateTime> deliveredDates = history.map(...).toSet();` -> O(m) build + O(1) membership checks during eventLoader.
+
+---
+
+[lib/farmer/products/product_list_screen.dart]
+Markers:
+ - StreamBuilder + server `.where('farmId')` filtering.
+ - `Image.network(..., errorBuilder: ...)` defensive pattern avoiding runtime test failures due to network.
+
+---
+
+[lib/farmer/products/product_management_screen.dart]
+ - Server-side `.where('farmId', isEqualTo: farmId)` for scoped product lists.
+
+---
+
+[lib/farmer/products/add_product_screen.dart]
+ - UI form logic: dropdowns built via `.map()`; validation rules (constant-time checks); file/image handling.
+
+---
+
+[lib/admin_analytics_servics.dart]
+Line 14: `totalRevenueStream` -> reactive stream with aggregation
+	- Pattern: On each snapshot, iterate docs and sum `totalAmount`.
+	- Complexity: O(n) per snapshot where n = delivered orders in snapshot.
+	- Rationale: Provide live-updating revenue metric.
+	- Caveat: For large data volumes, repeated full scans are inefficient.
+	- Suggestion: use materialized aggregates (Cloud Functions maintaining totals) or Firestore's `count()` if available.
+
+Line 27 & 34: `verifiedFarmsCount`, `customerCount` -> `snap.docs.length` counts
+	- Pattern: reactive counts; snapshot size cost remains.
+
+---
+
+[lib/admin_analytics_screen.dart]
+Line 50: `.where('orderDate', isGreaterThanOrEqualTo: Timestamp.fromDate(_startDate))` -> range query
+	- Pattern: Restrict to date range; server-side efficient with proper index.
+
+Line 79: `..sort((a,b)=>b.value.compareTo(a.value));` -> sort aggregate buckets
+	- Complexity: O(k log k) for k buckets.
+
+Recommendation: Pre-aggregate time series or use incremental counters to reduce per-client compute.
+
+---
+
+[lib/admin_dashboard.dart]
+ - Streams and counts for dashboard widgets. Uses `IndexedStack` for view switching.
+ - No heavy algorithms; mostly orchestration of streams and UI presentation.
+
+---
+
+[lib/admin_verification_screen.dart]
+Line 51: `.where('status', isEqualTo: 'pending')` -> server filter
+Line 125: `badImageIndices.contains(i)` -> membership check (if `badImageIndices` is `List` then O(n) per check; if `Set` then O(1)).
+	- Suggestion: store `badImageIndices` as `Set<int>` for O(1) membership if frequent.
+
+---
+
+[lib/admin_settings_screen.dart]
+ - StreamBuilder of single doc for settings.
+ - Form and stack layout logic (no heavy algorithmic work).
+
+---
+
+[lib/admin/verified_farms_screen.dart]
+ - Server filter `where('status', isEqualTo: 'verified')` followed by UI mapping.
+
+---
+
+[lib/widgets/billing_summary_screen.dart]
+Line 45: server `.where('customerId', ...).where('status', 'Delivered')` to limit snapshot.
+Line 55: `currentMonthOrders = allDocs.where((doc) { ... }).toList();` -> client date filter O(n)
+	- Suggestion: If this is common, include `orderDate` range in server query to reduce client work.
+Line 158: `items.map(...).join('\n')` -> linear aggregation and formatting.
+
+---
+
+[lib/widgets/farmer_stat_card.dart, rating_dialog.dart, farmer_waiting_screen.dart, farmer_rejected_screen.dart]
+ - UI helpers: mapping widget props, no complex algorithms.
+
+---
+
+[lib/system_logs_screen.dart]
+Line 56: `if (action.contains("Approved")) ...` -> substring pattern matching
+	- Complexity: O(m) per check where m = length of action string.
+	- Suggestion: Prefer structured log fields for deterministic classification.
+
+---
+
+[lib/auth/register_farm_screen.dart, signup_form.dart, login_form.dart, farm_status_screen.dart, farm_approved_screen.dart]
+ - Form input validation (constant-time checks), image indexing/list operations.
+ - Repeated pattern: use `.map()` to convert lists to `DropdownMenuItem` or widgets.
+
+---
+
+[lib/customer/subscription_management_screen.dart]
+Line 173: `Set<DateTime> deliveredDates = history.map(...).toSet();` -> set creation O(m)
+	- Pattern: use `Set` for O(1) membership when loading calendar events.
+
+---
+
+[lib/customer/farm_products_screen.dart]
+ - Compound server queries for category and farmId (efficient with index).
+
+---
+
+[lib/main.dart]
+ - App bootstrap and route wiring. Not algorithm-heavy but controls initial stream subscriptions and root widget creation.
+
+---
+
+Tests referencing algorithmic patterns:
+- `test/unit/place_order_test.dart` exercises transaction success & failure flows.
+- `test/unit/admin_analytics_test.dart` validates stream aggregation logic.
+- `test/unit/auth_logic_test.dart` verifies finite-state branching decisions.
+
+Global recommendations (summary):
+1) Transactions: keep concise; minimize document reads/writes in a single txn.
+2) Sorting & Filtering: prefer server-side `.orderBy` and `.where` for large datasets; use paging.
+3) Aggregations: for large datasets, use materialized views or server-side aggregate counters.
+4) Search: move to tokenized fields or integrate search index when dataset grows.
+5) Collections membership: use `Set` when membership tested frequently.
+6) Logging/classification: use structured fields instead of substring heuristics.
+
+If you want a CSV/JSON output of these annotations or a truly exhaustive every-line annotation, tell me which format and I will generate it next (this will take more time and produce a larger file).
+
+End of exhaustive report.
+
+---
+
+[lib/models/cart_model.dart]
+Line 85: `await _firestore.runTransaction((transaction) async {` -> Firestore Transaction (atomic read/write).
+	- Pattern: Transactional read-then-write (optimistic concurrency semantics provided by Firestore).
+	- Complexity: Each transaction performs O(k) reads/writes where k = number of distinct products in the cart.
+	- Reason: Ensure stock consistency across concurrent order placements — prevents overselling.
+	- Caveats & Suggestions: Keep the transaction short and read only required documents to reduce contention. If cart items span many products and farms, splitting into per-farm transactions or using queued background processing may improve scalability.
+
+Line 91: `DocumentSnapshot productSnap = await transaction.get(productRef);` -> Transactional read (consistent snapshot within txn).
+	- Pattern: Snapshot read inside transaction ensures consistent view.
+
+Line 111: `transaction.update(update['ref'], {'stock': update['newStock']});` -> Transactional write.
+	- Pattern: Batched updates inside transaction to persist new stock values.
+
+Line 123/141: `transaction.set(orderRef, {... 'items': _items.values.map((i) => {...}).toList() });` -> Serialization via `map()`.
+	- Pattern: Data transformation (map) followed by write; analogous to a map/reduce step where we transform in-memory objects to a serializable list.
+
+Recommendation: add defensive checks for very large carts and consider breaking transactions when k grows large to avoid contention or transaction size limits.
+
+---
+
+[lib/models/product_model.dart]
+factory `Product.fromFirestore(...)` -> Parsing / Type Normalization.
+	- Pattern: Safe numeric parsing (handles int/double/string); defensive coding to avoid runtime cast errors.
+	- Complexity: O(1) per product.
+	- Reason: Firestore stores loosely typed data; parsing ensures the app has well-typed model objects.
+
+`toMap()` -> Serialization mapping for writes.
+
+Recommendation: Keep parsing central to avoid duplication; consider tests for edge cases (nulls, strings with commas, locale-dependent decimals).
+
+---
+
+[lib/auth/auth_logic.dart]
+`enum AuthAction` + `determineAuthAction(profileData, selectedUiRole)` -> Finite-state decision branch.
+	- Pattern: Deterministic decision table implemented as chained conditionals/switch.
+	- Complexity: O(1) — constant-time evaluation.
+	- Reason: Extracts role/status routing logic from UI, making it unit-testable and simple.
+	- Suggestion: Keep this pure function minimal; add unit tests for all role/status combinations (done).
+
+---
+
+[lib/auth/auth_screen.dart]
+Reads user doc, then uses `determineAuthAction` to dispatch navigation.
+	- Pattern: Lookup + dispatch (simple routing logic).
+	- Complexity: O(1) for routing after the DB read.
+	- Suggestion: Cache user profile locally or use an auth-state stream to avoid repeated reads on re-entrant login flows.
+
+---
+
+[lib/customer/customer_orders_screen.dart]
+Server-side query: `.where('customerId', isEqualTo: user.uid)` -> Indexed query.
+	- Pattern: Server-side filtering via Firestore index.
+	- Complexity: Expected O(log n) on server for indexed lookup; client receives filtered snapshot.
+
+Client-side `docs.sort((a,b) => ...)` -> Sorting for ordering by date or value.
+	- Complexity: O(n log n) locally, where n = number of docs in snapshot.
+	- Reason: Firestore snapshot may not arrive sorted in the desired order or custom comparison is needed; sorting client-side gives control.
+	- Suggestion: Prefer server-side ordering using Firestore `.orderBy(...)` when possible to minimize client CPU and bandwidth for large n.
+
+`await firestore.runTransaction(...)` used for order cancellation/stock reversal.
+	- Pattern: Transactional revert to ensure stock is updated atomically when orders change status.
+
+---
+
+[lib/farmer/orders/farmer_orders_screen.dart]
+Server `.where('farmId', ...)` and client-side `.where(...)` filter for status.
+	- Note: Server filters are preferable; the code does both, likely to allow flexible UI filters without re-querying the server.
+	- Complexity: Client-side filter is O(n) each time the snapshot changes.
+
+Sorting (`docs.sort(...)`) used for display order — O(n log n).
+
+Transactions are used to change order status and update stock — correct pattern for correctness.
+
+Recommendation: For UI filters, fetch paginated results or use Firestore composite indexes for common filter combos (farmId + status + orderDate) to avoid fetching full collections.
+
+---
+
+[lib/farmer/orders/daily_delivery_list.dart]
+`Set<DateTime> deliveredDates = history.map(...).toSet();`
+	- Pattern: Build a `Set` for O(1) membership lookups when building calendar event loaders.
+	- Complexity: O(m) to build set (m = history length); membership O(1) per check.
+
+`items.map(...).join(', ')` -> String aggregation for display.
+
+---
+
+[lib/admin_analytics_servics.dart]
+`totalRevenueStream`:
+	- Pattern: Reactive stream (Stream) that aggregates per-snapshot by iterating docs and summing `totalAmount`.
+	- Complexity: O(n) work per snapshot (n = number of delivered orders in snapshot).
+	- Reason: Provide a live-updating total revenue metric.
+	- Caveat: If order volume is large, repeated full scans per snapshot are expensive; consider server-side aggregate counters (incremental summaries) or Cloud Functions to maintain aggregated docs.
+
+`verifiedFarmsCount` and `customerCount`:
+	- Pattern: Reactive count streams (snap.docs.length) — O(1) to compute length, but snapshot size cost remains.
+	- Suggestion: Use Firestore count() queries (if available) or maintain counters in a separate collection for scale.
+
+---
+
+[lib/admin_analytics_screen.dart]
+Server-side range query: `where('orderDate', isGreaterThanOrEqualTo: ...)`.
+	- Pattern: Range query to fetch relevant time-windowed data.
+
+Sorting analytics results client-side (`..sort((a,b)=>b.value.compareTo(a.value))`) — O(k log k) where k = number of metric buckets.
+
+Recommendation: If analytics datasets are large, pre-aggregate into time-buckets on write (via backend/Cloud Functions) so clients fetch small precomputed series.
+
+---
+
+[lib/widgets/billing_summary_screen.dart]
+Server-side filters used for selecting delivered orders for the customer.
+Client-side `.where` used to restrict to current month (local date arithmetic) — O(n).
+String aggregation for item lists uses `.map().join()`.
+
+---
+
+[lib/customer/farm_products_screen.dart]
+Compound server-side queries filter by `farmId` and `category` — efficient when Firestore composite indexes exist.
+
+---
+
+[lib/customer/subscription_management_screen.dart]
+`Set` usage for membership checks in calendar event loader is appropriate and efficient.
+
+---
+
+[lib/customer/customer_home.dart]
+Server `.where('status', isEqualTo: 'verified')` and client-side substring search via `contains(searchQuery)`.
+	- Pattern: Substring search is O(n * m) roughly (n docs, m average name length) and not indexable; for larger datasets use a search index or precomputed search tokens.
+
+---
+
+[lib/farmer/products/product_list_screen.dart]
+Defensive `errorBuilder` for image loading — no algorithmic concern, but improves test stability by avoiding network I/O.
+
+---
+
+[lib/admin_verification_screen.dart]
+Server `.where('status', isEqualTo: 'pending')`, plus local UI index/flag checks (badImageIndices.contains(i)).
+
+---
+
+[lib/system_logs_screen.dart]
+String `contains` checks to classify log entries — simple substring pattern matching.
+	- Suggestion: Use structured log fields for robust classification rather than free-text contains.
+
+---
+
+[lib/main.dart]
+App bootstrap — no substantive algorithms beyond wiring streams and navigation.
+
+---
+
+Tests:
+- `test/unit/place_order_test.dart` exercises Firestore transactions and expected success/failure conditions.
+- `test/unit/admin_analytics_test.dart` demonstrates stream-based aggregation with a fake Firestore.
+
+Final Recommendations (summary):
+1. Transactions: good choice for stock and order consistency. Keep transactions small and well-scoped.
+2. Sorting & Filtering: push as much as possible to Firestore (server-side) using `orderBy` and `where` to avoid client CPU and bandwidth costs.
+3. Aggregations: for large datasets, avoid full snapshot scans per UI refresh; use incremental counters, materialized aggregates, or backend aggregation jobs.
+4. Search: substring `contains` is fine for small lists; introduce normalized tokens or a search service for scale.
+5. Tests: continue using `fake_cloud_firestore` and pure logic extraction (like `auth_logic`) — this dramatically increases test determinism.
+
+If you want, I can now:
+- produce a CSV/JSON file with these entries for programmatic analysis,
+- or create a fully exhaustive per-line annotation (every line in `lib/`), which will take longer.
+
+End of expanded report.
+
